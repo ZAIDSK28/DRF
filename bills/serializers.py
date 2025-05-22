@@ -21,7 +21,11 @@ class OutletSerializer(serializers.ModelSerializer):
         fields = ("id", "name", "route", "route_id")
 class BillSerializer(serializers.ModelSerializer):
     outlet = serializers.PrimaryKeyRelatedField(queryset=Outlet.objects.all())
-    route  = serializers.ReadOnlyField(source="outlet.route.name")  # optional
+    route_name  = serializers.ReadOnlyField(source="outlet.route.name")  # optional
+    route  = serializers.ReadOnlyField(source="outlet.route.id")  # optional
+    outlet_name = serializers.ReadOnlyField(
+        source='outlet.name'
+    )
 
     class Meta:
         model  = Bill
