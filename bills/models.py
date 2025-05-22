@@ -30,7 +30,7 @@ class Bill(models.Model):
     STATUS_CHOICES = (('open','Open'),('cleared','Cleared'))
 
     outlet = models.ForeignKey(Outlet, on_delete=models.PROTECT)
-    invoice_number = models.PositiveBigIntegerField()
+    invoice_number = models.CharField(max_length=255)
     invoice_date   = models.DateField()
     amount         = models.DecimalField(max_digits=12, decimal_places=2)
     brand          = models.CharField(max_length=255)

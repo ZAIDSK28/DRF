@@ -10,7 +10,7 @@ class Payment(models.Model):
                                      on_delete=models.CASCADE)
     payment_method = models.CharField(max_length=10, choices=METHOD_CHOICES)
     amount         = models.DecimalField(max_digits=12, decimal_places=2)
-    transaction_photo = models.FileField(null=True, blank=True)
+    transaction_Number = models.CharField(max_length=50, blank=True, null=True)
     cheque_type    = models.CharField(max_length=20, blank=True, null=True)
     cheque_number  = models.CharField(max_length=50, blank=True, null=True)
     cheque_date    = models.DateField(blank=True, null=True)
