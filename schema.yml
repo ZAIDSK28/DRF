@@ -1,0 +1,736 @@
+openapi: 3.0.3
+info:
+  title: Debt Recovery API
+  version: 1.0.0
+  description: API documentation for Admin and DRA roles
+paths:
+  /api/auth/login/:
+    post:
+      operationId: api_auth_login_create
+      description: POST /api/auth/login/  ->  returns refresh, access and user info
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPair'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPair'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPair'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenObtainPair'
+          description: ''
+  /api/auth/logout/:
+    post:
+      operationId: api_auth_logout_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No content
+  /api/auth/users/:
+    get:
+      operationId: api_auth_users_list
+      description: |-
+        GET /api/auth/users/       → list all non-admin users
+        GET /api/auth/users/{pk}/  → retrieve a single non-admin user
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+          description: ''
+  /api/auth/users/{id}/:
+    get:
+      operationId: api_auth_users_retrieve
+      description: |-
+        GET /api/auth/users/       → list all non-admin users
+        GET /api/auth/users/{pk}/  → retrieve a single non-admin user
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+  /api/bills/:
+    get:
+      operationId: api_bills_list
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Bill'
+          description: ''
+    post:
+      operationId: api_bills_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BillCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BillCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BillCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillCreate'
+          description: ''
+  /api/bills/{bill_id}/assign/:
+    post:
+      operationId: api_bills_assign_create
+      parameters:
+      - in: path
+        name: bill_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/bills/{id}/:
+    get:
+      operationId: api_bills_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bill'
+          description: ''
+    put:
+      operationId: api_bills_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Bill'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Bill'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Bill'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bill'
+          description: ''
+    patch:
+      operationId: api_bills_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedBill'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedBill'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedBill'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bill'
+          description: ''
+  /api/bills/import/:
+    post:
+      operationId: api_bills_import_create
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/outlets/:
+    get:
+      operationId: api_outlets_list
+      description: |-
+        GET /api/outlets/         → list all outlets (or filter by ?route_id=<id>)
+        GET /api/outlets/{pk}/    → retrieve a single outlet
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Outlet'
+          description: ''
+  /api/outlets/{id}/:
+    get:
+      operationId: api_outlets_retrieve
+      description: |-
+        GET /api/outlets/         → list all outlets (or filter by ?route_id=<id>)
+        GET /api/outlets/{pk}/    → retrieve a single outlet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this outlet.
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Outlet'
+          description: ''
+  /api/payments/:
+    get:
+      operationId: api_payments_list
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Payment'
+          description: ''
+  /api/payments/{bill_id}/payments/:
+    get:
+      operationId: api_payments_payments_list
+      parameters:
+      - in: path
+        name: bill_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Payment'
+          description: ''
+    post:
+      operationId: api_payments_payments_create
+      parameters:
+      - in: path
+        name: bill_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Payment'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Payment'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Payment'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+          description: ''
+  /api/reports/export/:
+    get:
+      operationId: api_reports_export_retrieve
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/routes/:
+    get:
+      operationId: api_routes_list
+      description: |-
+        GET  /api/routes/             → list all routes
+        GET  /api/routes/{pk}/        → retrieve a single route
+        GET  /api/routes/{pk}/outlets/→ list outlets on this route
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Route'
+          description: ''
+  /api/routes/{id}/:
+    get:
+      operationId: api_routes_retrieve
+      description: |-
+        GET  /api/routes/             → list all routes
+        GET  /api/routes/{pk}/        → retrieve a single route
+        GET  /api/routes/{pk}/outlets/→ list outlets on this route
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this route.
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Route'
+          description: ''
+  /api/routes/{id}/outlets/:
+    get:
+      operationId: api_routes_outlets_retrieve
+      description: |-
+        GET  /api/routes/             → list all routes
+        GET  /api/routes/{pk}/        → retrieve a single route
+        GET  /api/routes/{pk}/outlets/→ list outlets on this route
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this route.
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Route'
+          description: ''
+components:
+  schemas:
+    Bill:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        outlet:
+          type: integer
+        route_name:
+          type: string
+          readOnly: true
+        route:
+          type: integer
+          readOnly: true
+        outlet_name:
+          type: string
+          readOnly: true
+        overdue_days:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        invoice_number:
+          type: string
+          maxLength: 255
+        invoice_date:
+          type: string
+          format: date
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        brand:
+          type: string
+          maxLength: 255
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        cleared_at:
+          type: string
+          format: date-time
+          nullable: true
+        assigned_to:
+          type: integer
+          nullable: true
+      required:
+      - amount
+      - brand
+      - created_at
+      - id
+      - invoice_date
+      - invoice_number
+      - outlet
+      - outlet_name
+      - route
+      - route_name
+    BillCreate:
+      type: object
+      properties:
+        outlet:
+          type: integer
+        invoice_number:
+          type: string
+          maxLength: 255
+        invoice_date:
+          type: string
+          format: date
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        brand:
+          type: string
+          maxLength: 255
+        route:
+          type: string
+          readOnly: true
+      required:
+      - amount
+      - brand
+      - invoice_date
+      - invoice_number
+      - outlet
+      - route
+    LogoutRequest:
+      type: object
+      description: POST body for /api/auth/logout/.
+      properties:
+        refresh:
+          type: string
+      required:
+      - refresh
+    Outlet:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+        route:
+          type: string
+          readOnly: true
+        route_id:
+          type: integer
+          writeOnly: true
+      required:
+      - id
+      - name
+      - route
+      - route_id
+    PatchedBill:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        outlet:
+          type: integer
+        route_name:
+          type: string
+          readOnly: true
+        route:
+          type: integer
+          readOnly: true
+        outlet_name:
+          type: string
+          readOnly: true
+        overdue_days:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        invoice_number:
+          type: string
+          maxLength: 255
+        invoice_date:
+          type: string
+          format: date
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        brand:
+          type: string
+          maxLength: 255
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        cleared_at:
+          type: string
+          format: date-time
+          nullable: true
+        assigned_to:
+          type: integer
+          nullable: true
+    Payment:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        payment_method:
+          $ref: '#/components/schemas/PaymentMethodEnum'
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        transaction_number:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: -9223372036854775808
+          format: int64
+          nullable: true
+        cheque_type:
+          type: string
+          nullable: true
+          maxLength: 20
+        cheque_number:
+          type: string
+          nullable: true
+          maxLength: 50
+        cheque_date:
+          type: string
+          format: date
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        bill:
+          type: integer
+        dra:
+          type: integer
+          readOnly: true
+      required:
+      - amount
+      - bill
+      - created_at
+      - dra
+      - id
+      - payment_method
+    PaymentMethodEnum:
+      enum:
+      - cash
+      - upi
+      - cheque
+      type: string
+      description: |-
+        * `cash` - Cash
+        * `upi` - UPI
+        * `cheque` - Cheque
+    RoleEnum:
+      enum:
+      - admin
+      - dra
+      type: string
+      description: |-
+        * `admin` - Admin
+        * `dra` - Debt Recovery Agent
+    Route:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+      required:
+      - id
+      - name
+    StatusEnum:
+      enum:
+      - open
+      - cleared
+      type: string
+      description: |-
+        * `open` - Open
+        * `cleared` - Cleared
+    TokenObtainPair:
+      type: object
+      properties:
+        username:
+          type: string
+          writeOnly: true
+        password:
+          type: string
+          writeOnly: true
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          readOnly: true
+      required:
+      - access
+      - password
+      - refresh
+      - username
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        full_name:
+          type: string
+          maxLength: 255
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        is_admin:
+          type: boolean
+          readOnly: true
+      required:
+      - full_name
+      - id
+      - is_admin
+      - role
+      - username
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

@@ -1,9 +1,17 @@
+# users/serializers.py
 from rest_framework import serializers
 from users.models import User
 
 
+class LogoutRequestSerializer(serializers.Serializer):
+    """POST body for /api/auth/logout/."""
+    refresh = serializers.CharField()
+
 class UserSerializer(serializers.ModelSerializer):
-    is_admin = serializers.ReadOnlyField()
+    # DRF will automatically look for a model attribute/property
+    # with the same name, so no `source=` is required.
+    is_admin = serializers.BooleanField(read_only=True)
+
     class Meta:
-        model = User
-        fields = ('id','username','full_name','role','is_admin')
+        model  = User
+        fields = ('id', 'username', 'full_name', 'role', 'is_admin')

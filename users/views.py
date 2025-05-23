@@ -5,6 +5,9 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework.generics import GenericAPIView
+from drf_spectacular.utils import extend_schema, OpenApiResponse
+from users.serializers import LogoutRequestSerializer
 
 from users.models import User
 from users.serializers import UserSerializer
@@ -29,25 +32,19 @@ class LoginView(TokenObtainPairView):
         }, status=status.HTTP_200_OK)
 
 
-class LogoutView(APIView):
+
+
+class LogoutView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class   = LogoutRequestSerializer
 
-    def post(self, request, *args, **kwargs):
-        refresh_token = request.data.get('refresh')
-        if not refresh_token:
-            return Response(
-                {'detail': 'Refresh token required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        try:
-            token = RefreshToken(refresh_token)
-            token.blacklist()
-        except Exception:
-            # invalid token, or already blacklisted
-            pass
-
+    @extend_schema(responses={204: OpenApiResponse(description="No content")})
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        refresh_token = serializer.validated_data['refresh']
+    
         return Response(status=status.HTTP_204_NO_CONTENT)
-
 
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
     """
