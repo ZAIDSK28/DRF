@@ -7,7 +7,7 @@ paths:
   /api/auth/login/:
     post:
       operationId: api_auth_login_create
-      description: POST /api/auth/login/  ->  returns refresh, access and user info
+      description: POST /api/auth/login/  → returns refresh, access and user info
       tags:
       - api
       requestBody:
@@ -55,8 +55,8 @@ paths:
     get:
       operationId: api_auth_users_list
       description: |-
-        GET /api/auth/users/       → list all non-admin users
-        GET /api/auth/users/{pk}/  → retrieve a single non-admin user
+        GET /api/auth/users/      → list non-admin users
+        GET /api/auth/users/{pk}/ → retrieve single non-admin user
       tags:
       - api
       security:
@@ -74,8 +74,8 @@ paths:
     get:
       operationId: api_auth_users_retrieve
       description: |-
-        GET /api/auth/users/       → list all non-admin users
-        GET /api/auth/users/{pk}/  → retrieve a single non-admin user
+        GET /api/auth/users/      → list non-admin users
+        GET /api/auth/users/{pk}/ → retrieve single non-admin user
       parameters:
       - in: path
         name: id
@@ -97,6 +97,9 @@ paths:
   /api/bills/:
     get:
       operationId: api_bills_list
+      description: |-
+        GET  /api/bills/    → list all bills
+        POST /api/bills/    → create a new bill
       tags:
       - api
       security:
@@ -112,6 +115,9 @@ paths:
           description: ''
     post:
       operationId: api_bills_create
+      description: |-
+        GET  /api/bills/    → list all bills
+        POST /api/bills/    → create a new bill
       tags:
       - api
       requestBody:
@@ -146,14 +152,34 @@ paths:
         required: true
       tags:
       - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BillAssign'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BillAssign'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BillAssign'
+        required: true
       security:
       - jwtAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bill'
+          description: ''
   /api/bills/{id}/:
     get:
       operationId: api_bills_retrieve
+      description: |-
+        GET    /api/bills/{pk}/    → retrieve a bill
+        PUT    /api/bills/{pk}/    → update a bill
+        PATCH  /api/bills/{pk}/    → partial update
       parameters:
       - in: path
         name: id
@@ -173,6 +199,10 @@ paths:
           description: ''
     put:
       operationId: api_bills_update
+      description: |-
+        GET    /api/bills/{pk}/    → retrieve a bill
+        PUT    /api/bills/{pk}/    → update a bill
+        PATCH  /api/bills/{pk}/    → partial update
       parameters:
       - in: path
         name: id
@@ -204,6 +234,10 @@ paths:
           description: ''
     patch:
       operationId: api_bills_partial_update
+      description: |-
+        GET    /api/bills/{pk}/    → retrieve a bill
+        PUT    /api/bills/{pk}/    → update a bill
+        PATCH  /api/bills/{pk}/    → partial update
       parameters:
       - in: path
         name: id
@@ -237,11 +271,23 @@ paths:
       operationId: api_bills_import_create
       tags:
       - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExcelImport'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ExcelImport'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ExcelImport'
+        required: true
       security:
       - jwtAuth: []
       responses:
         '200':
-          description: No response body
+          description: Import summary
   /api/outlets/:
     get:
       operationId: api_outlets_list
@@ -363,14 +409,14 @@ paths:
       - jwtAuth: []
       responses:
         '200':
-          description: No response body
+          description: CSV or XLSX file
   /api/routes/:
     get:
       operationId: api_routes_list
       description: |-
-        GET  /api/routes/             → list all routes
-        GET  /api/routes/{pk}/        → retrieve a single route
-        GET  /api/routes/{pk}/outlets/→ list outlets on this route
+        GET  /api/routes/              → list all routes
+        GET  /api/routes/{pk}/         → retrieve a single route
+        GET  /api/routes/{pk}/outlets/ → list outlets on this route
       tags:
       - api
       security:
@@ -388,9 +434,9 @@ paths:
     get:
       operationId: api_routes_retrieve
       description: |-
-        GET  /api/routes/             → list all routes
-        GET  /api/routes/{pk}/        → retrieve a single route
-        GET  /api/routes/{pk}/outlets/→ list outlets on this route
+        GET  /api/routes/              → list all routes
+        GET  /api/routes/{pk}/         → retrieve a single route
+        GET  /api/routes/{pk}/outlets/ → list outlets on this route
       parameters:
       - in: path
         name: id
@@ -413,9 +459,9 @@ paths:
     get:
       operationId: api_routes_outlets_retrieve
       description: |-
-        GET  /api/routes/             → list all routes
-        GET  /api/routes/{pk}/        → retrieve a single route
-        GET  /api/routes/{pk}/outlets/→ list outlets on this route
+        GET  /api/routes/              → list all routes
+        GET  /api/routes/{pk}/         → retrieve a single route
+        GET  /api/routes/{pk}/outlets/ → list outlets on this route
       parameters:
       - in: path
         name: id
@@ -495,6 +541,18 @@ components:
       - outlet_name
       - route
       - route_name
+    BillAssign:
+      type: object
+      properties:
+        bill_ids:
+          type: array
+          items:
+            type: integer
+        dra_id:
+          type: integer
+      required:
+      - bill_ids
+      - dra_id
     BillCreate:
       type: object
       properties:
@@ -523,6 +581,14 @@ components:
       - invoice_number
       - outlet
       - route
+    ExcelImport:
+      type: object
+      properties:
+        file:
+          type: string
+          format: uri
+      required:
+      - file
     LogoutRequest:
       type: object
       description: POST body for /api/auth/logout/.

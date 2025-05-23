@@ -41,7 +41,9 @@ class BillCreateSerializer(serializers.ModelSerializer):
         )
 
 class BillAssignSerializer(serializers.Serializer):
-    dra_id = serializers.IntegerField()
+    bill_ids = serializers.ListField(child=serializers.IntegerField())
+    dra_id   = serializers.IntegerField()
+
 
 class ExcelImportSerializer(serializers.Serializer):
     file = serializers.FileField()

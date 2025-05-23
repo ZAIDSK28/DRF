@@ -15,7 +15,7 @@ from users.serializers import UserSerializer
 
 class LoginView(TokenObtainPairView):
     """
-    POST /api/auth/login/  ->  returns refresh, access and user info
+    POST /api/auth/login/  → returns refresh, access and user info
     """
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -38,25 +38,33 @@ class LogoutView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class   = LogoutRequestSerializer
 
-    @extend_schema(responses={204: OpenApiResponse(description="No content")})
-    def post(self, request):
+    @extend_schema(
+        request   = LogoutRequestSerializer,
+        responses = {204: OpenApiResponse(description="No content")},
+    )
+    def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         refresh_token = serializer.validated_data['refresh']
-    
+
+        try:
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+        except Exception:
+            # invalid token or already blacklisted
+            pass
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    GET /api/auth/users/       → list all non-admin users
-    GET /api/auth/users/{pk}/  → retrieve a single non-admin user
+    GET /api/auth/users/      → list non-admin users
+    GET /api/auth/users/{pk}/ → retrieve single non-admin user
     """
-    serializer_class = UserSerializer
+    serializer_class   = UserSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # exclude both Django superusers and any user whose role is 'admin'
         return User.objects.exclude(
-            Q(is_superuser=True) |
-            Q(role='admin')
+            Q(is_superuser=True) | Q(role='admin')
         )

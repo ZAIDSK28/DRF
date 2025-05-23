@@ -60,21 +60,25 @@ class Bill(models.Model):
         return self.amount - paid
 
     def save(self, *args, **kwargs):
-        # If we’ve just been marked “cleared” and haven’t set cleared_at yet:
-        if self.status == 'cleared' and self.cleared_at is None:
-            now = timezone.now()
-            self.cleared_at = now
-            # days between creation date and clear date
-            delta = now.date() - self.created_at.date()
-            self.overdue_days = delta.days
+        # Detect insert vs update
+        is_new = self.pk is None
 
-        # If still open, keep updating overdue_days on each save
-        elif self.status == 'open':
-            today = timezone.now().date()
-            delta = today - self.created_at.date()
-            self.overdue_days = delta.days
-
+        # First let Django populate created_at, etc.
         super().save(*args, **kwargs)
+
+        # Now that created_at exists, compute overdue_days / cleared_at
+        if is_new:
+            # On first save, if status=='cleared', stamp cleared_at
+            if self.status == 'cleared' and self.cleared_at is None:
+                now = timezone.now()
+                self.cleared_at   = now
+                self.overdue_days = (now.date() - self.created_at.date()).days
+                super().save(update_fields=['cleared_at', 'overdue_days'])
+        else:
+            # On subsequent saves, keep overdue_days up to date if still open
+            if self.status == 'open':
+                self.overdue_days = (timezone.now().date() - self.created_at.date()).days
+                super().save(update_fields=['overdue_days'])
 
     @property
     def route(self):
