@@ -21,6 +21,9 @@ from .serializers import (
     ExcelImportSerializer,
     RouteSerializer,
     OutletSerializer,
+    RouteSimpleSerializer,
+    OutletSimpleSerializer,
+    BillSimpleSerializer,
 )
 from payments.models import Payment
 from payments.serializers import PaymentSerializer
@@ -160,3 +163,27 @@ class OutletViewSet(viewsets.ReadOnlyModelViewSet):
         if route_id is not None:
             qs = qs.filter(route_id=route_id)
         return qs
+
+class IsDRA(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return bool(request.user.is_authenticated and request.user.role == 'dra')
+
+    
+class MyAssignmentsFlatView(APIView):
+    """
+    GET /api/my-assignments-flat/
+    returns three arrays (routes, outlets, bills) filtered to request.user
+    """
+    permission_classes = [IsDRA]
+
+    def get(self, request):
+        user = request.user
+        routes_qs  = Route.objects.filter(outlets__bill__assigned_to=user).distinct()
+        outlets_qs = Outlet.objects.filter(bill__assigned_to=user).distinct()
+        bills_qs   = Bill.objects.filter(assigned_to=user)
+
+        return Response({
+            'routes':  RouteSimpleSerializer(routes_qs,  many=True).data,
+            'outlets': OutletSimpleSerializer(outlets_qs, many=True).data,
+            'bills':   BillSimpleSerializer(bills_qs,   many=True).data,
+        })

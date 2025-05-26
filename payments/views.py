@@ -27,7 +27,9 @@ class BillPaymentsListCreateView(generics.ListCreateAPIView):
 
 # 13. List all my payments
 class MyPaymentsListView(generics.ListAPIView):
-    serializer_class = PaymentSerializer
+    serializer_class   = PaymentSerializer
     permission_classes = (IsDRA,)
+
     def get_queryset(self):
-        return Payment.objects.filter(dra=self.request.user)
+        # only payments for bills that are assigned to the logged-in user
+        return Payment.objects.filter(bill__assigned_to=self.request.user)

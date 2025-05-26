@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import Bill , Outlet , Route
 from payments.serializers import PaymentSerializer
 from users.models import User
+from .models import Route, Outlet, Bill
 
 class RouteSerializer(serializers.ModelSerializer):
     class Meta:
@@ -19,6 +20,8 @@ class OutletSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Outlet
         fields = ("id", "name", "route", "route_id")
+
+
 class BillSerializer(serializers.ModelSerializer):
     outlet = serializers.PrimaryKeyRelatedField(queryset=Outlet.objects.all())
     route_name  = serializers.ReadOnlyField(source="outlet.route.name")  # optional
@@ -26,10 +29,26 @@ class BillSerializer(serializers.ModelSerializer):
     outlet_name = serializers.ReadOnlyField(
         source='outlet.name'
     )
+    assigned_to_id   = serializers.IntegerField(source='assigned_to.id',   read_only=True)
+    assigned_to_name = serializers.CharField( source='assigned_to.full_name', read_only=True)
 
     class Meta:
         model  = Bill
-        fields = "__all__"
+        fields = (
+            "id",
+            "outlet",
+            "outlet_name",
+            "route",
+            "route_name",
+            "invoice_number",
+            "invoice_date",
+            "amount",
+            "brand",
+            "status",
+            "overdue_days",
+            "assigned_to_id",
+            "assigned_to_name",
+        )
 
 class BillCreateSerializer(serializers.ModelSerializer):
     route = serializers.ReadOnlyField(source='outlet.route.name')
@@ -47,3 +66,42 @@ class BillAssignSerializer(serializers.Serializer):
 
 class ExcelImportSerializer(serializers.Serializer):
     file = serializers.FileField()
+
+class RouteSimpleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = Route
+        fields = ('id', 'name')
+
+
+class OutletSimpleSerializer(serializers.ModelSerializer):
+    route_id   = serializers.ReadOnlyField(source='route.id')
+    route_name = serializers.ReadOnlyField(source='route.name')
+
+    class Meta:
+        model  = Outlet
+        fields = ('id', 'name', 'route_id', 'route_name')
+
+
+class BillSimpleSerializer(serializers.ModelSerializer):
+    outlet_id      = serializers.ReadOnlyField(source='outlet.id')
+    outlet_name    = serializers.ReadOnlyField(source='outlet.name')
+    route_id       = serializers.ReadOnlyField(source='outlet.route.id')
+    route_name     = serializers.ReadOnlyField(source='outlet.route.name')
+    invoice_number = serializers.ReadOnlyField()
+    invoice_date   = serializers.ReadOnlyField()
+
+    class Meta:
+        model  = Bill
+        fields = (
+            'id',
+            'invoice_number',
+            'invoice_date',
+            'amount',
+            'brand',
+            'status',
+            'overdue_days',
+            'route_id',
+            'route_name',
+            'outlet_id',
+            'outlet_name',
+        )
