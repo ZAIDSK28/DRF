@@ -23,11 +23,10 @@ class Payment(models.Model):
 @receiver(post_save, sender=Payment)
 def update_bill_remaining(sender, instance, **kwargs):
     bill = instance.bill
-    paid = bill.payment_set.aggregate(
+    paid = bill.user_payments.aggregate(
         total=Sum('amount')
     )['total'] or Decimal('0.00')
     bill.remaining_amount = bill.actual_amount - paid
-    # if you want to auto-close when fully paid
     if bill.remaining_amount <= 0:
         bill.status = 'closed'
     bill.save(update_fields=['remaining_amount', 'status'])
