@@ -26,8 +26,8 @@ class OutletAdmin(admin.ModelAdmin):
 
 @admin.register(Bill)
 class BillAdmin(admin.ModelAdmin):
-    list_display = ("pk","invoice_number", "outlet", "route", "amount","remaining_amount", "status")
+    list_display = ("pk","invoice_number", "outlet", "route", "actual_amount","remaining_amount", "status")
     list_filter  = ("outlet__route", "status", "brand")
     search_fields = ("invoice_number", "outlet__name",)
-    readonly_fields = ('remaining_amount','amount')
+    readonly_fields = ('remaining_amount',)
     list_per_page = 25

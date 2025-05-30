@@ -1,10 +1,14 @@
 from django.db import models
 from django.conf import settings
+from django.dispatch import receiver
+from django.db.models.signals import post_save
+from django.db.models import Sum
+from decimal import Decimal
 from bills.models import Bill
 
 class Payment(models.Model):
     METHOD_CHOICES = (('cash','Cash'),('upi','UPI'),('cheque','Cheque'))
-    bill           = models.ForeignKey(Bill, on_delete=models.CASCADE, related_name='payments')
+    bill           = models.ForeignKey(Bill, on_delete=models.CASCADE, related_name='user_payments')
     dra            = models.ForeignKey(settings.AUTH_USER_MODEL,
                                      limit_choices_to={'role':'dra'},
                                      on_delete=models.CASCADE)
@@ -15,3 +19,15 @@ class Payment(models.Model):
     cheque_number  = models.CharField(max_length=50, blank=True, null=True)
     cheque_date    = models.DateField(blank=True, null=True)
     created_at     = models.DateTimeField(auto_now_add=True)
+
+@receiver(post_save, sender=Payment)
+def update_bill_remaining(sender, instance, **kwargs):
+    bill = instance.bill
+    paid = bill.payment_set.aggregate(
+        total=Sum('amount')
+    )['total'] or Decimal('0.00')
+    bill.remaining_amount = bill.actual_amount - paid
+    # if you want to auto-close when fully paid
+    if bill.remaining_amount <= 0:
+        bill.status = 'closed'
+    bill.save(update_fields=['remaining_amount', 'status'])

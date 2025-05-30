@@ -29,8 +29,12 @@ class BillSerializer(serializers.ModelSerializer):
     outlet_name = serializers.ReadOnlyField(
         source='outlet.name'
     )
-    assigned_to_id   = serializers.IntegerField(source='assigned_to.id',   read_only=True)
-    assigned_to_name = serializers.CharField( source='assigned_to.full_name', read_only=True)
+    assigned_to_id = serializers.PrimaryKeyRelatedField(
+        source='assigned_to', queryset=User.objects.all(),
+    )
+    assigned_to_name = serializers.CharField(
+        source='assigned_to.username', read_only=True
+    )
     remaining_amount = serializers.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -46,10 +50,11 @@ class BillSerializer(serializers.ModelSerializer):
             "route_name",
             "invoice_number",
             "invoice_date",
-            "amount",
+            "actual_amount",
             "remaining_amount",
             "brand",
             "status",
+            "cleared_at",
             "overdue_days",
             "assigned_to_id",
             "assigned_to_name",
@@ -61,7 +66,7 @@ class BillCreateSerializer(serializers.ModelSerializer):
         model = Bill
         fields = (
             'outlet','invoice_number','invoice_date',
-            'amount','brand','route'
+            'actual_amount','brand','route'
         )
 
 class BillAssignSerializer(serializers.Serializer):
@@ -101,7 +106,7 @@ class BillSimpleSerializer(serializers.ModelSerializer):
             'id',
             'invoice_number',
             'invoice_date',
-            'amount',
+            'actual_amount',
             'brand',
             'status',
             'overdue_days',
