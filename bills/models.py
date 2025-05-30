@@ -51,34 +51,22 @@ class Bill(models.Model):
 
     @property
     def remaining_amount(self):
-        paid = (
-            self.payments
-                .aggregate(total=Sum('amount'))    # SQL SUM(payments.amount)
-                .get('total')
-            or Decimal('0')
-        )
+        paid = (self.payments.aggregate(total=Sum('amount'))['total'] or 0)
         return self.amount - paid
 
     def save(self, *args, **kwargs):
-        # Detect insert vs update
         is_new = self.pk is None
-
-        # First let Django populate created_at, etc.
         super().save(*args, **kwargs)
 
-        # Now that created_at exists, compute overdue_days / cleared_at
-        if is_new:
-            # On first save, if status=='cleared', stamp cleared_at
-            if self.status == 'cleared' and self.cleared_at is None:
-                now = timezone.now()
-                self.cleared_at   = now
-                self.overdue_days = (now.date() - self.created_at.date()).days
-                super().save(update_fields=['cleared_at', 'overdue_days'])
-        else:
-            # On subsequent saves, keep overdue_days up to date if still open
-            if self.status == 'open':
-                self.overdue_days = (timezone.now().date() - self.created_at.date()).days
-                super().save(update_fields=['overdue_days'])
+        today = timezone.now().date()
+        # always compute overdue_days from creation
+        self.overdue_days = (today - self.created_at.date()).days
+
+        if self.status == 'cleared' and not self.cleared_at:
+            self.cleared_at = timezone.now()
+
+        super().save(update_fields=['overdue_days', 'cleared_at'] if self.cleared_at else ['overdue_days'])
+
 
     @property
     def route(self):

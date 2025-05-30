@@ -1,8 +1,5 @@
 import io
 import pandas as pd
-from django.utils import timezone
-from django.core.mail import EmailMessage
-from django.conf import settings
 
 from rest_framework import generics, status, permissions, viewsets
 from rest_framework.generics import GenericAPIView
@@ -10,6 +7,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from django.http import HttpResponse
+from django.db import transaction
 
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
@@ -30,19 +29,31 @@ from payments.serializers import PaymentSerializer
 
 
 def export_bills(format: str):
-    """
-    Stub implementation—replace with your real CSV/XLSX generation.
-    Returns (content_bytes, filename, content_type).
-    """
+    qs = Bill.objects.all()
+    df = pd.DataFrame.from_records(qs.values(
+        'pk',
+        'outlet__name',
+        'invoice_number',
+        'invoice_date',
+        'amount',
+        'status',
+        'assigned_to__username',
+        'overdue_days',
+    ))
+
     if format == 'xlsx':
-        content_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        filename     = 'bills.xlsx'
-        content      = b''  # your XLSX bytes here
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Bills')
+        output.seek(0)
+        return (
+            output.getvalue(),
+            'bills.xlsx',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
     else:
-        content_type = 'text/csv'
-        filename     = 'bills.csv'
-        content      = b'id,amount,status\n'
-    return content, filename, content_type
+        csv = df.to_csv(index=False)
+        return csv.encode(), 'bills.csv', 'text/csv'
 
 
 class IsAdmin(permissions.BasePermission):
@@ -96,21 +107,29 @@ class BillAssignView(GenericAPIView):
 
 
 class BillImportView(GenericAPIView):
-    permission_classes = (IsAuthenticated,)
-    serializer_class   = ExcelImportSerializer
+    serializer_class = ExcelImportSerializer
+    # …
 
-    @extend_schema(
-        request   = ExcelImportSerializer,
-        responses = {200: OpenApiResponse(description="Import summary")},
-    )
     def post(self, request, *args, **kwargs):
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        uploaded_file = ser.validated_data['file']
+        file = ser.validated_data['file']
 
-        # … your Excel-import logic here …
-        summary = {"imported": 10, "errors": []}
-        return Response(summary, status=status.HTTP_200_OK)
+        df = pd.read_excel(file)
+        required = {'invoice_number','invoice_date','amount','assigned_to'}
+        missing  = required - set(df.columns)
+        if missing:
+            return Response({'error': f'Missing columns: {missing}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        summary = {'imported': 0, 'errors': []}
+        with transaction.atomic():
+            for idx, row in df.iterrows():
+                # … coerce types or use a DRF serializer …
+                # check duplicates, then Bill.objects.create(...)
+                # increment summary or collect row errors
+                pass
+
+        return Response(summary)
 
 
 class ReportExportView(APIView):
@@ -123,9 +142,9 @@ class ReportExportView(APIView):
     def get(self, request, *args, **kwargs):
         fmt = request.query_params.get('format', 'csv')
         content, filename, content_type = export_bills(fmt)
-        response = Response(content, content_type=content_type)
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
-        return response
+        resp = HttpResponse(content, content_type=content_type)
+        resp['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return resp
 
 
 class RouteViewSet(viewsets.ReadOnlyModelViewSet):
@@ -180,7 +199,10 @@ class MyAssignmentsFlatView(APIView):
         user = request.user
         routes_qs  = Route.objects.filter(outlets__bill__assigned_to=user).distinct()
         outlets_qs = Outlet.objects.filter(bill__assigned_to=user).distinct()
-        bills_qs   = Bill.objects.filter(assigned_to=user)
+        bills_qs = Bill.objects.filter(
+            assigned_to=user,
+            status='open',
+        )
 
         return Response({
             'routes':  RouteSimpleSerializer(routes_qs,  many=True).data,

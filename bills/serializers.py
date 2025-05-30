@@ -24,13 +24,17 @@ class OutletSerializer(serializers.ModelSerializer):
 
 class BillSerializer(serializers.ModelSerializer):
     outlet = serializers.PrimaryKeyRelatedField(queryset=Outlet.objects.all())
-    route_name  = serializers.ReadOnlyField(source="outlet.route.name")  # optional
-    route  = serializers.ReadOnlyField(source="outlet.route.id")  # optional
+    route_name  = serializers.ReadOnlyField(source="outlet.route.name")  
+    route  = serializers.ReadOnlyField(source="outlet.route.id")  
     outlet_name = serializers.ReadOnlyField(
         source='outlet.name'
     )
     assigned_to_id   = serializers.IntegerField(source='assigned_to.id',   read_only=True)
     assigned_to_name = serializers.CharField( source='assigned_to.full_name', read_only=True)
+    remaining_amount = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        read_only=True )
 
     class Meta:
         model  = Bill
@@ -43,6 +47,7 @@ class BillSerializer(serializers.ModelSerializer):
             "invoice_number",
             "invoice_date",
             "amount",
+            "remaining_amount",
             "brand",
             "status",
             "overdue_days",

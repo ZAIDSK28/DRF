@@ -20,7 +20,6 @@ class BillPaymentsListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         bill = get_object_or_404(Bill, pk=self.kwargs['bill_id'])
         payment = serializer.save(dra=self.request.user, bill=bill)
-        bill.amount -= payment.amount
         if bill.amount <= 0:
             bill.status = 'cleared'
         bill.save()
