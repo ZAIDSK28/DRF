@@ -31,7 +31,7 @@ from payments.serializers import PaymentSerializer
 def export_bills(format: str):
     qs = Bill.objects.all()
     df = pd.DataFrame.from_records(qs.values(
-        'Sr No',
+        'pk',
         'outlet__name',
         'invoice_number',
         'invoice_date',

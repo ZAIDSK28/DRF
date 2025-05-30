@@ -2,7 +2,9 @@ from rest_framework import generics, permissions
 from django.shortcuts import get_object_or_404
 from bills.models import Bill
 from .models import Payment
-from .serializers import PaymentSerializer, PaymentCreateSerializer
+from .serializers import PaymentSerializer
+from rest_framework.permissions import IsAdminUser
+
 
 class IsDRA(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -20,15 +22,15 @@ class BillPaymentsListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         bill = get_object_or_404(Bill, pk=self.kwargs['bill_id'])
         payment = serializer.save(dra=self.request.user, bill=bill)
-        if bill.amount <= 0:
+        if bill.remaining_amount <= 0:
             bill.status = 'cleared'
         bill.save()
 
 # 13. List all my payments
 class MyPaymentsListView(generics.ListAPIView):
+    """
+    GET /api/payments/ → list ALL payments (admin only)
+    """
+    queryset           = Payment.objects.all().order_by('-created_at')
     serializer_class   = PaymentSerializer
-    # permission_classes = (IsDRA,IsAdmin)
-
-    def get_queryset(self):
-        # only payments for bills that are assigned to the logged-in user
-        return Payment.objects.filter(bill__assigned_to=self.request.user)
+    permission_classes = (IsAdminUser   ,)
