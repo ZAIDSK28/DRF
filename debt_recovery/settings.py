@@ -38,9 +38,9 @@ INSTALLED_APPS = [
     
     # 3rd-party
     'rest_framework', 
+    'drf_spectacular',
     'rest_framework_simplejwt.token_blacklist',
     'django_crontab',
-    'drf_spectacular',
     
     # custom apps
     'users', 
@@ -109,6 +109,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 REST_FRAMEWORK['DEFAULT_SCHEMA_CLASS'] = 'drf_spectacular.openapi.AutoSchema'

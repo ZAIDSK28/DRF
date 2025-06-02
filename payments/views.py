@@ -4,6 +4,8 @@ from bills.models import Bill
 from .models import Payment
 from .serializers import PaymentSerializer
 from rest_framework.permissions import IsAdminUser
+from .pagination import PaymentPagination
+
 
 
 class IsDRA(permissions.BasePermission):
@@ -14,6 +16,7 @@ class IsDRA(permissions.BasePermission):
 class BillPaymentsListCreateView(generics.ListCreateAPIView):
     serializer_class = PaymentSerializer
     permission_classes = (IsDRA,)
+    pagination_class   = PaymentPagination
 
     def get_queryset(self):
         bid = self.kwargs['bill_id']
@@ -34,3 +37,4 @@ class MyPaymentsListView(generics.ListAPIView):
     queryset           = Payment.objects.all().order_by('-created_at')
     serializer_class   = PaymentSerializer
     permission_classes = (IsAdminUser   ,)
+    pagination_class   = PaymentPagination
