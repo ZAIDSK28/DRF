@@ -1,17 +1,36 @@
-from django.urls import path
-from .views import (
-    BillListCreateView, BillDetailView,
-    BillAssignView, BillImportView ,MyAssignmentsFlatView
+# bills/urls.py
+
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from bills.views import (
+    BillListCreateView,
+    BillDetailView,
+    BillImportView,
+    BillAssignView,
+    MyAssignmentsFlatView,
 )
 
+router = DefaultRouter()
+
 urlpatterns = [
-    path('', BillListCreateView.as_view(), name='bills-list-create'),
-    path('import/', BillImportView.as_view(), name='bills-import'),
-    path('<int:pk>/', BillDetailView.as_view(), name='bills-detail'),
-    path('<int:bill_id>/assign/', BillAssignView.as_view(), name='bills-assign'),
-    path(
-        'my-assignments-flat/',
-        MyAssignmentsFlatView.as_view(),
-        name='my-assignments-flat'
-    ),
+    # GET  /api/bills/                → BillListCreateView
+    path("", BillListCreateView.as_view(), name="bills-list-create"),
+
+    # POST /api/bills/import/         → BillImportView
+    path("import/", BillImportView.as_view(), name="bills-import"),
+
+    # GET  /api/bills/<pk>/           → BillDetailView
+    path("<int:pk>/", BillDetailView.as_view(), name="bills-detail"),
+
+    # PUT  /api/bills/<bill_id>/assign/ → BillAssignView
+    path("<int:bill_id>/assign/", BillAssignView.as_view(), name="bills-assign"),
+
+    # GET  /api/bills/my-assignments-flat/ → MyAssignmentsFlatView
+    path("my-assignments-flat/", MyAssignmentsFlatView.as_view(), name="my-assignments-flat"),
+
+    # GET  /api/bills/export-records/
+    # Note: no “bills/” prefix here—just “export-records/”
+
+    # If you want to expose the “categories” router under /api/bills/categories/…
+    path("", include(router.urls)),
 ]

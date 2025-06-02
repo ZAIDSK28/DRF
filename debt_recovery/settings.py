@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'rest_framework_simplejwt.token_blacklist',
     'django_crontab',
+    'django_extensions',
     
     # custom apps
     'users', 
