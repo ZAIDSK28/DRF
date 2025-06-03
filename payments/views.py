@@ -1,5 +1,7 @@
+from bills.serializers import serializers
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
 
@@ -29,7 +31,7 @@ class BillPaymentsListCreateView(generics.ListCreateAPIView):
       → create a new payment (assigned to the current DRA & this bill).
     """
     serializer_class = PaymentSerializer
-    permission_classes = (IsDRA,IsAdminUser)
+    permission_classes = (IsDRA,)
     pagination_class = PaymentPagination
 
     def get_queryset(self):
@@ -70,10 +72,30 @@ class BillPaymentsListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         bill = get_object_or_404(Bill, pk=self.kwargs['bill_id'])
+        amount = serializer.validated_data.get("amount", 0)
+
+        # 1) If the bill is already fully paid (remaining_amount == 0), reject any new payment:
+        if bill.remaining_amount <= 0:
+            raise ValidationError({
+                "amount": "This bill is already fully paid (remaining amount is 0)."
+            })
+
+        # 2) If the posted amount exceeds the bill’s remaining_amount, reject:
+        if amount > bill.remaining_amount:
+            raise ValidationError({
+                "amount": (
+                    f"Cannot pay {amount}. "
+                    f"Remaining amount is only {bill.remaining_amount}."
+                )
+            })
+
+        # 3) Otherwise, it’s valid—proceed to save:
         payment = serializer.save(dra=self.request.user, bill=bill)
+
+        # 4) After saving, if remaining_amount hits zero, mark the bill as cleared:
         if bill.remaining_amount <= 0:
             bill.status = 'cleared'
-        bill.save()
+            bill.save()
 
 
 class MyPaymentsListView(generics.ListAPIView):
