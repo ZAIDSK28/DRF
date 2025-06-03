@@ -1,3 +1,4 @@
+from datetime import timezone
 import io
 import pandas as pd
 
@@ -473,12 +474,6 @@ class MyAssignmentsFlatView(APIView):
             }
         })
     
-
-# bills/views.py
-
-import io
-import pandas as pd
-from django.utils import timezone
 
 def export_bills_xlsx(start_date=None, end_date=None):
     """
