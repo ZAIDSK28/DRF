@@ -414,16 +414,6 @@ class MyAssignmentsFlatView(APIView):
                 .order_by('-created_at')
         )
 
-        # ─── 2) Grab all outlets that have at least one bill assigned to user ──
-        outlets_qs = Outlet.objects.filter(
-            bill__assigned_to=user
-        ).distinct()
-
-        # ─── 3) Grab all routes that have at least one such outlet ────────────
-        routes_qs = Route.objects.filter(
-            outlets__bill__assigned_to=user
-        ).distinct()
-
         # ─── 4) Read pagination parameters ────────────────────────────────────
         try:
             limit = int(request.query_params.get('limit', 10))
@@ -457,14 +447,11 @@ class MyAssignmentsFlatView(APIView):
         # Compute total_pages via ceiling division
         total_pages = (total_bills + limit - 1) // limit if total_bills > 0 else 0
 
-        # ─── 6) Serialize routes & outlets (no pagination on these) ─────────
-        serialized_routes  = RouteSimpleSerializer(routes_qs,  many=True).data
-        serialized_outlets = OutletSimpleSerializer(outlets_qs, many=True).data
+ 
 
         # ─── 7) Return the combined payload ──────────────────────────────────
         return Response({
-            "routes":  serialized_routes,
-            "outlets": serialized_outlets,
+           
             "bills":   serialized_bills,
             "pagination": {
                 "limit":        limit,
