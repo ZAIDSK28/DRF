@@ -30,3 +30,23 @@ def update_bill_remaining(sender, instance, **kwargs):
     if bill.remaining_amount <= 0:
         bill.status = 'closed'
     bill.save(update_fields=['remaining_amount', 'status'])
+
+class DailyPaymentSummary(models.Model):
+    date = models.DateField(unique=True)  # e.g. 2025-06-04
+    cash_total = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0
+    )
+    upi_total = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0
+    )
+    cheque_total = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0
+    )
+
+    class Meta:
+        ordering = ["-date"]
+        verbose_name = "Daily Payment Summary"
+        verbose_name_plural = "Daily Payment Summaries"
+
+    def __str__(self):
+        return f"{self.date}: ₹{self.cash_total} cash | ₹{self.upi_total} UPI | ₹{self.cheque_total} cheque"

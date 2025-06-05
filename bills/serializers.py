@@ -99,6 +99,7 @@ class BillSimpleSerializer(serializers.ModelSerializer):
     route_name     = serializers.ReadOnlyField(source='outlet.route.name')
     invoice_number = serializers.ReadOnlyField()
     invoice_date   = serializers.ReadOnlyField()
+    remaining_amount = serializers.ReadOnlyField()
 
     class Meta:
         model  = Bill
@@ -107,6 +108,7 @@ class BillSimpleSerializer(serializers.ModelSerializer):
             'invoice_number',
             'invoice_date',
             'actual_amount',
+            'remaining_amount',
             'brand',
             'status',
             'overdue_days',

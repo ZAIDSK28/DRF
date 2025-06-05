@@ -1,4 +1,4 @@
-from datetime import timezone
+from django.utils import timezone
 import io
 import pandas as pd
 
@@ -17,6 +17,7 @@ from drf_spectacular.types import OpenApiTypes
 
 from .models import Bill, Route, Outlet
 from bills.models import Bill
+from users.models import User
 from payments.models import Payment
 from .serializers import (
     BillSerializer,
@@ -410,55 +411,78 @@ class MyAssignmentsFlatView(APIView):
         bills_qs = (
             Bill.objects
                 .filter(assigned_to=user, status='open')
-                .select_related('outlet', 'outlet__route')
-                .order_by('-created_at')
         )
 
-        # ─── 4) Read pagination parameters ────────────────────────────────────
-        try:
-            limit = int(request.query_params.get('limit', 10))
-            if limit <= 0:
-                raise ValueError
-        except (TypeError, ValueError):
-            return Response(
-                {"detail": "Invalid ‘limit’ parameter. Must be a positive integer."},
-                status=status.HTTP_400_BAD_REQUEST
+        # ─── 2) Apply optional query-param filters ──────────────────────────
+        route_name = request.query_params.get("route_name")
+        outlet_name = request.query_params.get("outlet_name")
+        invoice_number = request.query_params.get("invoice_number")
+
+         # ─── 3) Filter by route_name if provided ────────────────────────────
+        if route_name:
+            # Bill → outlet (FK) → route (FK) → name
+            bills_qs = bills_qs.filter(
+                outlet__route__name__icontains=route_name
             )
 
-        try:
-            page = int(request.query_params.get('page', 1))
-            if page <= 0:
-                raise ValueError
-        except (TypeError, ValueError):
-            return Response(
-                {"detail": "Invalid ‘page’ parameter. Must be a positive integer."},
-                status=status.HTTP_400_BAD_REQUEST
+         # ─── 4) Filter by outlet_name if provided ───────────────────────────
+        if outlet_name:
+            # Bill → outlet (FK) → name
+            bills_qs = bills_qs.filter(
+                outlet__name__icontains=outlet_name
+            )
+         # ─── 5) Filter by invoice_number if provided ────────────────────────
+        if invoice_number:
+            bills_qs = bills_qs.filter(
+                invoice_number__icontains=invoice_number
             )
 
-        # ─── 5) Compute total, slice bills_qs, and serialize ────────────────
+ # ─── 6) Count total (for pagination) ─────────────────────────────────
         total_bills = bills_qs.count()
-        start_index = (page - 1) * limit
-        end_index   = start_index + limit
 
-        # If the requested page is beyond the number of bills, we’ll return an empty list.
-        bills_page_qs = bills_qs[start_index:end_index]
+        # ─── 7) Apply ordering + pagination ─────────────────────────────────
+        raw_ordering = request.query_params.get('ordering', 'outlet__route__name')
+        ordering = raw_ordering.lstrip('-')
+        direction = raw_ordering[:1] if raw_ordering.startswith('-') else ''
+
+        if ordering not in [
+            "id", "brand", "invoice_date",
+            "outlet__route__name", "invoice_number",
+            "outlet__name", "remaining_amount",
+            "actual_amount",
+        ]:
+            return Response(
+                {"detail": f"Invalid ordering '{raw_ordering}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if direction == "-":
+            bills_qs = bills_qs.order_by(f"-{ordering}")
+        else:
+            bills_qs = bills_qs.order_by(ordering)
+
+        page = int(request.query_params.get("page", 1))
+        limit = int(request.query_params.get("limit", 25))
+
+        start = (page - 1) * limit
+        end = start + limit
+        bills_page_qs = bills_qs[start:end]
+
+        # ─── 8) Serialize only the “bills” portion ───────────────────────────
         serialized_bills = BillSimpleSerializer(bills_page_qs, many=True).data
 
-        # Compute total_pages via ceiling division
+        # ─── 9) Compute total_pages via ceiling division ─────────────────────
         total_pages = (total_bills + limit - 1) // limit if total_bills > 0 else 0
 
- 
-
-        # ─── 7) Return the combined payload ──────────────────────────────────
+        # ─── 10) Return the combined payload ─────────────────────────────────
         return Response({
-           
-            "bills":   serialized_bills,
+            "bills": serialized_bills,
             "pagination": {
-                "limit":        limit,
-                "page":         page,
-                "total_items":  total_bills,
-                "total_pages":  total_pages,
-            }
+                "limit":       limit,
+                "page":        page,
+                "total_items": total_bills,
+                "total_pages": total_pages,
+            },
         })
     
 

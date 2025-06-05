@@ -65,3 +65,8 @@ class PaymentCreateSerializer(serializers.ModelSerializer):
             'cheque_type','cheque_number','cheque_date'
         )
 
+class TodayPaymentTotalsSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    cash_total = serializers.DecimalField(max_digits=12, decimal_places=2)
+    upi_total = serializers.DecimalField(max_digits=12, decimal_places=2)
+    cheque_total = serializers.DecimalField(max_digits=12, decimal_places=2)

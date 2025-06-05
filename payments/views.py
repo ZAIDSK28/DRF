@@ -1,15 +1,21 @@
 from bills.serializers import serializers
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
 from django.shortcuts import get_object_or_404
-from django.utils.dateparse import parse_date
+from rest_framework.views import APIView
+from django.db.models.functions import Coalesce
+from django.db.models import Sum, Q, Value, DecimalField
 
+
+from django.utils.dateparse import parse_date
+from django.utils import timezone
 from bills.models import Bill
 from .models import Payment
 from .serializers import PaymentSerializer
 from rest_framework.permissions import IsAdminUser
 from .pagination import PaymentPagination
+from .serializers import TodayPaymentTotalsSerializer
+
 
 
 class IsDRA(permissions.BasePermission):
@@ -136,3 +142,57 @@ class MyPaymentsListView(generics.ListAPIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         return super().list(request, *args, **kwargs)
+
+class TodayPaymentTotalsAPIView(APIView):
+    """
+    GET → {
+      "date": "YYYY-MM-DD",
+      "cash_total": "…",
+      "upi_total": "…",
+      "cheque_total": "…"
+    }
+    """
+
+    def get(self, request, *args, **kwargs):
+        # 1) Determine “today” in local time (Asia/Kolkata).
+        today = timezone.localdate()
+
+        # 2) Filter only Payment rows whose created_at__date == today.
+        payments_today = Payment.objects.filter(created_at__date=today)
+
+        # 3) Aggregate sums per payment_method.
+        #    Each Sum(...) returns a Decimal or None; Value(0, output_field=DecimalField(...))
+        #    ensures the fallback is also a DecimalField.
+        aggregates = payments_today.aggregate(
+            cash_sum=Coalesce(
+                Sum(
+                    "amount",
+                    filter=Q(payment_method="cash")
+                ),
+                Value(0, output_field=DecimalField(max_digits=12, decimal_places=2)),
+            ),
+            upi_sum=Coalesce(
+                Sum(
+                    "amount",
+                    filter=Q(payment_method="upi")
+                ),
+                Value(0, output_field=DecimalField(max_digits=12, decimal_places=2)),
+            ),
+            cheque_sum=Coalesce(
+                Sum(
+                    "amount",
+                    filter=Q(payment_method="cheque")
+                ),
+                Value(0, output_field=DecimalField(max_digits=12, decimal_places=2)),
+            ),
+        )
+
+        data = {
+            "date": today,
+            "cash_total": aggregates["cash_sum"],
+            "upi_total": aggregates["upi_sum"],
+            "cheque_total": aggregates["cheque_sum"],
+        }
+
+        serializer = TodayPaymentTotalsSerializer(data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
