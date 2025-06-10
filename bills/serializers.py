@@ -77,6 +77,9 @@ class BillAssignSerializer(serializers.Serializer):
 class ExcelImportSerializer(serializers.Serializer):
     file = serializers.FileField()
 
+class ExcelImportBillsSerializer(serializers.Serializer):
+    file = serializers.FileField()
+
 class RouteSimpleSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Route

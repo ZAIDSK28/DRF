@@ -8,6 +8,7 @@ from bills.views import (
     BillImportView,
     BillAssignView,
     MyAssignmentsFlatView,
+    ImportBillsFromExcelAPIView,
 )
 
 router = DefaultRouter()
@@ -33,4 +34,6 @@ urlpatterns = [
 
     # If you want to expose the “categories” router under /api/bills/categories/…
     path("", include(router.urls)),
+
+    path("import-excel/", ImportBillsFromExcelAPIView.as_view(), name="import-bills-excel"),
 ]

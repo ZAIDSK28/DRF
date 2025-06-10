@@ -8,6 +8,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
+
 from django.http import HttpResponse
 from django.db import transaction
 from django.utils.dateparse import parse_date
@@ -26,8 +28,7 @@ from .serializers import (
     ExcelImportSerializer,
     RouteSerializer,
     OutletSerializer,
-    RouteSimpleSerializer,
-    OutletSimpleSerializer,
+    ExcelImportBillsSerializer,
     BillSimpleSerializer,
 )
 from bills.pagination import BillPagination
@@ -813,3 +814,114 @@ class PaymentExportView(APIView):
         resp = HttpResponse(content, content_type=content_type)
         resp["Content-Disposition"] = f'attachment; filename="{filename}"'
         return resp
+    
+class ImportBillsFromExcelAPIView(APIView):
+    """
+    POST /api/bills/import-excel/
+    Upload an .xlsx with columns:
+      Brand, Invoice Date, Route Name, Invoice Number,
+      Outlet Name, Outstanding Amount, Overdue Days, Invoice Bill Amount
+
+    Creates or re-links Route & Outlet, then creates a new Bill
+    only if invoice_number doesn't already exist, and sets
+    remaining_amount & overdue_days from the sheet.
+    """
+    parser_classes = (MultiPartParser, FormParser)
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request, *args, **kwargs):
+        # 1) validate upload
+        ser = ExcelImportBillsSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        excel = ser.validated_data["file"]
+
+        # 2) load into DataFrame
+        try:
+            df = pd.read_excel(excel, engine="openpyxl")
+        except Exception as e:
+            return Response(
+                {"detail": f"Could not read Excel file: {e}"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 3) normalize headers
+        df.columns = [c.strip() for c in df.columns]
+
+        # 4) ensure required columns
+        required = [
+            "Brand",
+            "Invoice Date",
+            "Route Name",
+            "Invoice Number",
+            "Outlet Name",
+            "Outstanding Amount",
+            "Overdue Days",
+            "Invoice Bill Amount",
+        ]
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            return Response(
+                {"detail": f"Missing columns: {', '.join(missing)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        imported = []
+        errors = []
+
+        # 5) process in one atomic transaction
+        with transaction.atomic():
+            for idx, row in df.iterrows():
+                row_num = idx + 2  # for error reporting (Excel row)
+                try:
+                    brand           = str(row["Brand"]).strip()
+                    invoice_date    = pd.to_datetime(row["Invoice Date"]).date()
+                    route_name      = str(row["Route Name"]).strip()
+                    invoice_number  = str(row["Invoice Number"]).strip()
+                    outlet_name     = str(row["Outlet Name"]).strip()
+                    outstanding_amt = float(row["Outstanding Amount"])
+                    overdue_days    = int(row["Overdue Days"])
+                    bill_amount     = float(row["Invoice Bill Amount"])
+
+                    # 5a) skip if this invoice already exists
+                    if Bill.objects.filter(invoice_number=invoice_number).exists():
+                        continue
+
+                    # 5b) get or create Route
+                    route, _ = Route.objects.get_or_create(name=route_name)
+
+                    # 5c) get or create Outlet, re-link if needed
+                    outlet, created = Outlet.objects.get_or_create(
+                        name=outlet_name,
+                        defaults={"route": route}
+                    )
+                    if not created and outlet.route_id != route.id:
+                        outlet.route = route
+                        outlet.save(update_fields=["route"])
+
+                    # 5d) create the Bill
+                    bill = Bill.objects.create(
+                        brand=brand,
+                        invoice_date=invoice_date,
+                        route=route,
+                        outlet=outlet,
+                        invoice_number=invoice_number,
+                        actual_amount=bill_amount,
+                    )
+
+                    # 5e) override remaining & overdue exactly
+                    Bill.objects.filter(pk=bill.pk).update(
+                        remaining_amount=outstanding_amt,
+                        overdue_days=overdue_days
+                    )
+
+                    imported.append(bill)
+
+                except Exception as e:
+                    errors.append({"row": row_num, "error": str(e)})
+
+        # 6) serialize & return
+        out_ser = BillSimpleSerializer(imported, many=True)
+        return Response({
+            "imported": out_ser.data,
+            "errors":  errors,
+        }, status=status.HTTP_201_CREATED)
