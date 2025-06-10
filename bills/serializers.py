@@ -3,6 +3,7 @@ from .models import Bill , Outlet , Route
 from payments.serializers import PaymentSerializer
 from users.models import User
 from .models import Route, Outlet, Bill
+import pandas as pd
 
 class RouteSerializer(serializers.ModelSerializer):
     class Meta:
@@ -79,6 +80,24 @@ class ExcelImportSerializer(serializers.Serializer):
 
 class ExcelImportBillsSerializer(serializers.Serializer):
     file = serializers.FileField()
+
+    def validate_file(self, uploaded_file):
+        df = pd.read_excel(uploaded_file)
+        missing = set([
+            'Brand',
+            'Invoice Date',
+            'Route Name',
+            'Invoice Number',
+            'Outlet Name',
+            'Outstanding Amount',
+            'Overdue Days',
+            'Invoice Bill Amount'
+        ]) - set(df.columns.str.strip())
+        if missing:
+            raise serializers.ValidationError(
+                f"Missing columns in Excel: {', '.join(missing)}"
+            )
+        return uploaded_file
 
 class RouteSimpleSerializer(serializers.ModelSerializer):
     class Meta:
