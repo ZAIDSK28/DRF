@@ -1,0 +1,94 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+pip-wheel-metadata/
+share/python-wheels/
+
+# Virtual environments
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+.PYENV/
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+
+# If you have a frontend:
+node_modules/
+
+# Logs and test coverage
+logs/
+*.log
+coverage.xml
+htmlcov/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+
+# Editor directories and files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*~ 
+*.swp
+
+# macOS / Windows
+.DS_Store
+Thumbs.db
+
+# Type checkers
+.mypy_cache/
+.dmypy.json
+
+# Documentation
+docs/_build/
+
+# Celery
+celerybeat-schedule
+
+# Docker override files
+docker-compose.override.yml
+
+# Secrets / env vars
+.env
+
+*.pot
+*.pyc
+__pycache__
+# Ignore all migration files except __init__.py
+**/migrations/*.py
+!**/migrations/__init__.py
+
+# Ignore compiled Python files in migrations
+**/migrations/*.pyc
