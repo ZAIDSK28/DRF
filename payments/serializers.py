@@ -30,6 +30,7 @@ class PaymentSerializer(serializers.ModelSerializer):
             'cheque_date',
             'firm',
             'created_at',
+            'cheque_status',
         )
         read_only_fields = ('dra', 'created_at')
 

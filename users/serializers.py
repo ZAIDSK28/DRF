@@ -15,3 +15,12 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model  = User
         fields = ('id', 'username', 'full_name', 'role', 'is_admin')
+
+class OTPVerifySerializer(serializers.Serializer):
+    username = serializers.CharField()
+    code     = serializers.CharField(max_length=6)
+
+class TokenResponseSerializer(serializers.Serializer):
+    refresh = serializers.CharField()
+    access  = serializers.CharField()
+    user    = UserSerializer()

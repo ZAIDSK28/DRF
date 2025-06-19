@@ -155,8 +155,8 @@ class TodayPaymentTotalsAPIView(APIView):
             created_at__date=today
         ).aggregate(
             total=Coalesce(
-                Sum("amount"),
-                Value(0, output_field=DecimalField(12,2))
+                Sum("amount", filter=Q(payment_method="cash")),
+                Value(0, output_field=DecimalField(max_digits=12, decimal_places=2))
             )
         )["total"]
 
@@ -165,8 +165,8 @@ class TodayPaymentTotalsAPIView(APIView):
             created_at__date=today
         ).aggregate(
             total=Coalesce(
-                Sum("amount"),
-                Value(0, output_field=DecimalField(12,2))
+                Sum("amount", filter=Q(payment_method="upi")),
+                Value(0, output_field=DecimalField(max_digits=12, decimal_places=2))
             )
         )["total"]
 
@@ -178,7 +178,7 @@ class TodayPaymentTotalsAPIView(APIView):
         ).aggregate(
             total=Coalesce(
                 Sum("amount"),
-                Value(0, output_field=DecimalField(12,2))
+                Value(0, output_field=DecimalField(max_digits=12, decimal_places=2))
             )
         )["total"]
 
