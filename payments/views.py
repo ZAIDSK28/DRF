@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from django.db.models.functions import Coalesce
 from django.db.models import Sum, Q, Value, DecimalField
+from drf_spectacular.utils import extend_schema, OpenApiResponse
 
 
 from django.utils.dateparse import parse_date
@@ -219,20 +220,25 @@ class ChequeHistoryAPIView(APIView):
         return Response(PaymentSerializer(base_qs.order_by("-cheque_date"), many=True).data)
 
 
+    @extend_schema(
+        request=ChequeStatusSerializer,
+        responses={200: PaymentSerializer},
+    )
     def put(self, request, pk, format=None):
-        """
-        PUT /api/payments/cheque-history/{pk}/
-        Body: { "cheque_status": "bounced" }  or { "cheque_status": "cleared" }
-        """
+        # 1) Only admins/staff may update cheque_status:
+        if not request.user.is_staff:
+            return Response(
+                {"detail": "Only admins may update cheque status."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 2) Fetch the cheque payment by PK (no dra filter):
         payment = get_object_or_404(
-            Payment.objects.filter(
-                dra=request.user,
-                payment_method="cheque"
-            ),
+            Payment.objects.filter(payment_method="cheque"),
             pk=pk
         )
 
-        # Only allow updating the cheque_status field
+        # 3) Update only the cheque_status field:
         serializer = ChequeStatusSerializer(
             payment,
             data=request.data,
@@ -242,22 +248,18 @@ class ChequeHistoryAPIView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
-        # now adjust the linked Bill if needed:
+        # 4) Adjust the linked Bill if needed:
         bill = payment.bill
-        if serializer.validated_data.get("cheque_status") == "bounced":
-            # put the amount back
-            bill.remaining_amount = bill.remaining_amount + payment.amount
+        new_status = serializer.validated_data.get("cheque_status")
+        if new_status == "bounced":
+            bill.remaining_amount += payment.amount
             bill.status = "open"
             bill.save(update_fields=["remaining_amount", "status"])
-        elif serializer.validated_data.get("cheque_status") == "cleared":
-            # if you want to mark the bill fully cleared here,
-            # you could check remaining_amount and set status="cleared"
-            if bill.remaining_amount <= 0:
-                bill.status = "closed"
-                bill.save(update_fields=["status"])
+        elif new_status == "cleared" and bill.remaining_amount <= 0:
+            bill.status = "closed"
+            bill.save(update_fields=["status"])
 
         return Response(serializer.data, status=status.HTTP_200_OK)
-
     def delete(self, request, pk, format=None):
         """
         DELETE /api/payments/cheque-history/{pk}/
