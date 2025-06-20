@@ -508,7 +508,7 @@ def export_bills_xlsx(start_date=None, end_date=None):
 
     Returns: (content_bytes, filename, content_type)
     """
-    bills_qs = Bill.objects.select_related("outlet__route").all()
+    bills_qs = Bill.objects.select_related("outlet__route")
     if start_date:
         bills_qs = bills_qs.filter(invoice_date__gte=start_date)
     if end_date:
@@ -516,14 +516,15 @@ def export_bills_xlsx(start_date=None, end_date=None):
 
     raw_values = bills_qs.values(
         "pk",
-        "brand",
-        "invoice_date",
         "invoice_number",
-        "remaining_amount",
-        "actual_amount",
-        "outlet__name",
+        "invoice_date",
         "outlet__route__name",
-        
+        "outlet__name",
+        "brand",
+        "remaining_amount",
+        "created_at",      # ← new
+        "overdue_days",    # ← new
+        "actual_amount",   # ← rename below as Total amount
         
     )
 
@@ -557,33 +558,39 @@ def export_bills_xlsx(start_date=None, end_date=None):
 
     bills_df = bills_df.rename(
         columns={
-            "pk": "Bill ID",
-            "brand": "Brand",
-            "invoice_date": "Invoice Date",
-            "outlet__route__name": "Route Name",
-            "invoice_number": "Invoice Number",
-            "outlet__name": "Outlet Name",
-            "remaining_amount": "Outstanding Amount",
-            "actual_amount": "Invoice Bill Amount",
+        "pk":             "Bill id",
+        "invoice_number": "Invoice number",
+        "invoice_date":   "Invoice date",
+        "outlet__route__name": "Route name",
+        "outlet__name":   "Outlet name",
+        "brand":          "Brand",
+        "remaining_amount": "Remaining amount",
+        "created_at":     "Bill created on",
+        "overdue_days":   "Overdue days",
+        "actual_amount":  "Total amount",
         }
     )
 
     ordered_columns = [
-        "Bill ID",
+        "Bill id",
+        "Invoice number",
+        "Invoice date",
+        "Route name",
+        "Outlet name",
         "Brand",
-        "Invoice Date",
-        "Route Name",
-        "Invoice Number",
-        "Outlet Name",
-        "Outstanding Amount",
-        "Overdue Days",
-        "Invoice Bill Amount",
+        "Remaining amount",
+        "Bill created on",
+        "Overdue days",
+        "Total amount",
     ]
     bills_df = bills_df[ordered_columns]
 
     # 8) Strip timezone info from “Invoice Date” if present
     if "Invoice Date" in bills_df.columns and pd.api.types.is_datetime64tz_dtype(bills_df["Invoice Date"].dtype):
         bills_df["Invoice Date"] = bills_df["Invoice Date"].dt.tz_convert(None)
+
+    if pd.api.types.is_datetime64tz_dtype(bills_df["Bill created on"].dtype):
+        bills_df["Bill created on"] = bills_df["Bill created on"].dt.tz_convert(None)
 
     # 9) Build a filename based on the date window
     start_str = start_date.isoformat() if start_date else "all"
@@ -592,43 +599,26 @@ def export_bills_xlsx(start_date=None, end_date=None):
 
     # 10) Write to an in‐memory XLSX file
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
         bills_df.to_excel(writer, index=False, sheet_name="Bills")
-    content = output.getvalue()
-    content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-    return content, filename, content_type
+    return output.getvalue(), f"bills_{start_date or 'all'}_to_{end_date or 'all'}.xlsx", \
+           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 
 def export_payments_xlsx(start_date=None, end_date=None):
-    """
-    Export payments as an XLSX file, with columns in this exact order:
-      1) Bill ID
-      2) Brand
-      3) Invoice Date
-      4) Route Name
-      5) Invoice Number
-      6) Outlet Name
-      7) Payment Amount        ← replaces “Remaining Amount”
-      8) Dra Username          ← replaces “Actual Amount”
-      9) Overdue Days
-
-    Only payments whose created_at date is between start_date and end_date are included.
-    Overdue Days is computed from the *bill*’s invoice_date as:
-        max((today – invoice_date).days, 0)
-
-    Returns: (content_bytes, filename, content_type)
-    """
-
-    payments_qs = Payment.objects.select_related("bill__outlet__route", "dra").all()
+    payments_qs = (
+        Payment.objects
+               .select_related("bill__outlet__route", "dra")
+               .all()
+    )
     if start_date:
         payments_qs = payments_qs.filter(created_at__date__gte=start_date)
     if end_date:
         payments_qs = payments_qs.filter(created_at__date__lte=end_date)
 
-   
-    raw_values = payments_qs.values(
+    # pull exactly the raw fields we need
+    raw = payments_qs.values(
         "bill__pk",
         "bill__brand",
         "bill__invoice_date",
@@ -636,81 +626,66 @@ def export_payments_xlsx(start_date=None, end_date=None):
         "bill__invoice_number",
         "bill__outlet__name",
         "amount",
+        "payment_method",
         "dra__username",
+        "bill__remaining_amount",
     )
+    df = pd.DataFrame.from_records(raw)
 
-    payments_df = pd.DataFrame.from_records(raw_values)
-
-    if payments_df.empty:
-        payments_df = pd.DataFrame(
-            columns=[
-                "bill__pk",
-                "bill__brand",
-                "bill__invoice_date",
-                "bill__outlet__route__name",
-                "bill__invoice_number",
-                "bill__outlet__name",
-                "amount",
-                "dra__username",
-            ]
-        )
-
+    # Compute Overdue Days
     today = timezone.localdate()
-
-    def compute_overdue(row):
-        inv_date = row["bill__invoice_date"]
-        if pd.isna(inv_date):
+    def compute_overdue(r):
+        inv = r["bill__invoice_date"]
+        if pd.isna(inv):
             return 0
-        inv = inv_date.to_pydatetime().date() if isinstance(inv_date, pd.Timestamp) else inv_date
-        delta = (today - inv).days
-        return max(delta, 0)
+        d = inv.to_pydatetime().date() if hasattr(inv, "to_pydatetime") else inv
+        return max((today - d).days, 0)
+    df["Overdue Days"] = df.apply(compute_overdue, axis=1)
 
-    payments_df["Overdue Days"] = payments_df.apply(compute_overdue, axis=1)
+    # Rename to exactly your headers
+    df = df.rename(columns={
+        "bill__pk":                "Bill no",
+        "bill__brand":             "Brand",
+        "bill__invoice_date":      "Invoice date",
+        "bill__outlet__route__name":"Route name",
+        "bill__invoice_number":    "Invoice number",
+        "bill__outlet__name":      "Outlet name",
+        "amount":                  "Collection amount",
+        "bill__remaining_amount":  "Remaining amount",
+        "payment_method":          "Payment method",
+        "dra__username":           "Username",
+    })
 
-    payments_df = payments_df.rename(
-        columns={
-            "bill__pk":                "Bill ID",
-            "bill__brand":             "Brand",
-            "bill__invoice_date":      "Invoice Date",
-            "bill__outlet__route__name": "Route Name",
-            "bill__invoice_number":    "Invoice Number",
-            "bill__outlet__name":      "Outlet Name",
-            "amount":                  "Payment Amount",
-            "dra__username":           "Username",
-        }
-    )
-
-    ordered_columns = [
-        "Bill ID",
+    # Enforce your exact column order
+    cols = [
+        "Bill no",
+        "Invoice number",
+        "Invoice date",
+        "Route name",
+        "Outlet name",
         "Brand",
-        "Invoice Date",
-        "Route Name",
-        "Invoice Number",
-        "Outlet Name",
-        "Payment Amount",
+        "Collection amount",
+        "Remaining amount",
+        "Payment method",
         "Username",
         "Overdue Days",
     ]
-    payments_df = payments_df[ordered_columns]
+    df = df[cols]
 
-    # 7) Drop any timezone info from “Invoice Date” if present
-    if "Invoice Date" in payments_df.columns and pd.api.types.is_datetime64tz_dtype(payments_df["Invoice Date"].dtype):
-        payments_df["Invoice Date"] = payments_df["Invoice Date"].dt.tz_convert(None)
+    # Drop any timezone info from the invoice-date column
+    if pd.api.types.is_datetime64tz_dtype(df["Invoice date"].dtype):
+        df["Invoice date"] = df["Invoice date"].dt.tz_convert(None)
 
-    # 8) Build the output filename based on the date window
+    # Build filename
     start_str = start_date.isoformat() if start_date else "all"
-    end_str = end_date.isoformat() if end_date else "all"
-    filename = f"payments-{start_str}-to-{end_str}.xlsx"
+    end_str   = end_date.isoformat()   if end_date   else "all"
+    filename  = f"payments-{start_str}-to-{end_str}.xlsx"
 
-    # 9) Write DataFrame to an in‐memory XLSX file
+    # Write out
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        payments_df.to_excel(writer, index=False, sheet_name="Payments")
-    content = output.getvalue()
-    content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-    return content, filename, content_type
-
+        df.to_excel(writer, index=False, sheet_name="Payments")
+    return output.getvalue(), filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 class BillExportView(APIView):
     """

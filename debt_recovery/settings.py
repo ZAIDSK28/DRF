@@ -169,3 +169,7 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
+DAILY_REPORT_RECIPIENTS = [
+    "aliasgar.s.kachwala4604@gmail.com",
+    "aliasgar.s.kachwala4604@gmail.com",
+]

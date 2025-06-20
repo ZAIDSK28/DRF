@@ -10,7 +10,7 @@ class Payment(models.Model):
     METHOD_CHOICES = (('cash','Cash'),('upi','UPI'),('cheque','Cheque'),('electronic','Electronic'))
     FIRM_CHOICES = [
         ('NA', 'NA'),
-        ('NZ', 'NZ'),
+        ('MZ', 'MZ'),
     ]
     CHEQUE_STATUS = [
       ('pending', 'Pending'),
