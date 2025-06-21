@@ -171,9 +171,9 @@ class TodayPaymentTotalsAPIView(APIView):
             )
         )["total"]
 
-        # cheque: only those cleared *today* by cheque_date
+        # cheque + electronic: only those cleared *today* by cheque_date
         cheque_sum = Payment.objects.filter(
-            payment_method="cheque",
+            payment_method__in=["cheque", "electronic"],
             cheque_status="cleared",
             cheque_date=today
         ).aggregate(

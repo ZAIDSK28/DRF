@@ -32,6 +32,11 @@ from .serializers import (
     BillSimpleSerializer,
 )
 from bills.pagination import BillPagination
+from openpyxl.utils.dataframe import dataframe_to_rows
+from django.db.models.functions import Coalesce
+from django.db.models import Sum, Value,  DecimalField
+
+
 
 
 class IsAdmin(permissions.BasePermission):
@@ -605,88 +610,121 @@ def export_bills_xlsx(start_date=None, end_date=None):
            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
-
 def export_payments_xlsx(start_date=None, end_date=None):
-    payments_qs = (
-        Payment.objects
-               .select_related("bill__outlet__route", "dra")
-               .all()
-    )
+    # 1) Fetch + build your DataFrame (df) exactly as before...
+    qs = Payment.objects.select_related("bill__outlet__route","dra").all()
     if start_date:
-        payments_qs = payments_qs.filter(created_at__date__gte=start_date)
+        qs = qs.filter(created_at__date__gte=start_date)
     if end_date:
-        payments_qs = payments_qs.filter(created_at__date__lte=end_date)
-
-    # pull exactly the raw fields we need
-    raw = payments_qs.values(
-        "bill__pk",
-        "bill__brand",
-        "bill__invoice_date",
-        "bill__outlet__route__name",
-        "bill__invoice_number",
-        "bill__outlet__name",
-        "amount",
-        "payment_method",
-        "dra__username",
-        "bill__remaining_amount",
+        qs = qs.filter(created_at__date__lte=end_date)
+    raw = qs.values(
+        "bill__pk","bill__brand","bill__invoice_date",
+        "bill__outlet__route__name","bill__invoice_number",
+        "bill__outlet__name","amount","payment_method",
+        "dra__username","bill__remaining_amount",
     )
     df = pd.DataFrame.from_records(raw)
 
-    # Compute Overdue Days
+    # 2) Compute “Overdue Days”
     today = timezone.localdate()
-    def compute_overdue(r):
+    def _ov(r):
         inv = r["bill__invoice_date"]
         if pd.isna(inv):
             return 0
         d = inv.to_pydatetime().date() if hasattr(inv, "to_pydatetime") else inv
         return max((today - d).days, 0)
-    df["Overdue Days"] = df.apply(compute_overdue, axis=1)
+    df["Overdue Days"] = df.apply(_ov, axis=1)
 
-    # Rename to exactly your headers
+    # 3) Rename & reorder columns
     df = df.rename(columns={
-        "bill__pk":                "Bill no",
-        "bill__brand":             "Brand",
-        "bill__invoice_date":      "Invoice date",
-        "bill__outlet__route__name":"Route name",
-        "bill__invoice_number":    "Invoice number",
-        "bill__outlet__name":      "Outlet name",
-        "amount":                  "Collection amount",
-        "bill__remaining_amount":  "Remaining amount",
-        "payment_method":          "Payment method",
-        "dra__username":           "Username",
+        "bill__pk":                  "Bill no",
+        "bill__brand":               "Brand",
+        "bill__invoice_date":        "Invoice date",
+        "bill__outlet__route__name": "Route name",
+        "bill__invoice_number":      "Invoice number",
+        "bill__outlet__name":        "Outlet name",
+        "amount":                    "Collection amount",
+        "bill__remaining_amount":    "Remaining amount",
+        "payment_method":            "Payment method",
+        "dra__username":             "Username",
     })
+    df = df[[
+        "Bill no","Invoice number","Invoice date","Route name","Outlet name",
+        "Brand","Collection amount","Remaining amount","Payment method",
+        "Username","Overdue Days"
+    ]]
 
-    # Enforce your exact column order
-    cols = [
-        "Bill no",
-        "Invoice number",
-        "Invoice date",
-        "Route name",
-        "Outlet name",
-        "Brand",
-        "Collection amount",
-        "Remaining amount",
-        "Payment method",
-        "Username",
-        "Overdue Days",
-    ]
-    df = df[cols]
-
-    # Drop any timezone info from the invoice-date column
+    # strip tzinfo
     if pd.api.types.is_datetime64tz_dtype(df["Invoice date"].dtype):
         df["Invoice date"] = df["Invoice date"].dt.tz_convert(None)
 
-    # Build filename
+    # 4) Compute today’s totals
+    today = timezone.localdate()
+
+    cash_total = Payment.objects.filter(
+        payment_method="cash",
+        created_at__date=today
+    ).aggregate(
+        total=Coalesce(
+            Sum("amount"),
+            Value(0),
+            output_field=DecimalField(max_digits=12, decimal_places=2)
+        )
+    )["total"]
+
+    upi_total = Payment.objects.filter(
+        payment_method="upi",
+        created_at__date=today
+    ).aggregate(
+        total=Coalesce(
+            Sum("amount"),
+            Value(0),
+            output_field=DecimalField(max_digits=12, decimal_places=2)
+        )
+    )["total"]
+
+    cheque_total = Payment.objects.filter(
+        payment_method__in=["cheque", "electronic"],
+        cheque_status="cleared",
+        cheque_date=today
+    ).aggregate(
+        total=Coalesce(
+            Sum("amount"),
+            Value(0),
+            output_field=DecimalField(max_digits=12, decimal_places=2)
+        )
+    )["total"]
+
+
+    # 5) Build the filename *before* writing
     start_str = start_date.isoformat() if start_date else "all"
     end_str   = end_date.isoformat()   if end_date   else "all"
     filename  = f"payments-{start_str}-to-{end_str}.xlsx"
 
-    # Write out
+    # 6) Write to Excel in‐memory, inserting the totals row at the top
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Payments")
-    return output.getvalue(), filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        wb    = writer.book
+        sheet = wb.create_sheet("Payments", 0)
 
+        # totals header
+        sheet.append([
+            "Cash Total",   float(cash_total),
+            "UPI Total",    float(upi_total),
+            "Cheque Total", float(cheque_total),
+        ])
+        sheet.append([])  # blank line
+
+        # dump df rows
+        for row in dataframe_to_rows(df, index=False, header=True):
+            sheet.append(row)
+
+    # 7) Return the bytes + metadata
+    return (
+        output.getvalue(),
+        filename,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 class BillExportView(APIView):
     """
     GET /api/bills/export-bills/?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD

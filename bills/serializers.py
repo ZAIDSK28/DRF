@@ -59,6 +59,7 @@ class BillSerializer(serializers.ModelSerializer):
             "overdue_days",
             "assigned_to_id",
             "assigned_to_name",
+            "created_at",
         )
 
 class BillCreateSerializer(serializers.ModelSerializer):

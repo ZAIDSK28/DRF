@@ -28,8 +28,8 @@ class Payment(models.Model):
     cheque_type    = models.CharField(max_length=20, blank=True, null=True)
     cheque_number  = models.CharField(max_length=50, blank=True, null=True)
     cheque_date    = models.DateField(blank=True, null=True)
-    firm           = models.CharField(max_length=2, choices=FIRM_CHOICES, default='NA')
-    cheque_status = models.CharField(max_length=10, choices=CHEQUE_STATUS,default='pending')
+    firm           = models.CharField(max_length=2, choices=FIRM_CHOICES, default='NA', blank=True, null=True)
+    cheque_status = models.CharField(max_length=10, choices=CHEQUE_STATUS,default='pending', blank=True, null=True)
     created_at     = models.DateTimeField(auto_now_add=True)
 
 @receiver(post_save, sender=Payment)
