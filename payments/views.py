@@ -172,6 +172,7 @@ class TodayPaymentTotalsAPIView(APIView):
         )["total"]
 
         # cheque + electronic: only those cleared *today* by cheque_date
+        # NEW: include both cheque & electronic once cleared *today*
         cheque_sum = Payment.objects.filter(
             payment_method__in=["cheque", "electronic"],
             cheque_status="cleared",
@@ -179,7 +180,8 @@ class TodayPaymentTotalsAPIView(APIView):
         ).aggregate(
             total=Coalesce(
                 Sum("amount"),
-                Value(0, output_field=DecimalField(max_digits=12, decimal_places=2))
+                Value(0),
+                output_field=DecimalField(max_digits=12, decimal_places=2),
             )
         )["total"]
 
