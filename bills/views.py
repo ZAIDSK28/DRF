@@ -447,9 +447,14 @@ class MyAssignmentsFlatView(APIView):
         total_bills = bills_qs.count()
 
         # ─── 7) Apply ordering + pagination ─────────────────────────────────
-        raw_ordering = request.query_params.get('ordering', 'outlet__route__name')
+        # default to newest invoice_date first
+        raw_ordering = request.query_params.get('ordering', '-invoice_date')        
         ordering = raw_ordering.lstrip('-')
-        direction = raw_ordering[:1] if raw_ordering.startswith('-') else ''
+        direction = '-' if raw_ordering.startswith('-') else ''
+        if direction == '-':
+            bills_qs = bills_qs.order_by(f"-{ordering}")
+        else:
+            bills_qs = bills_qs.order_by(ordering)
 
         if ordering not in [
             "id", "brand", "invoice_date",
@@ -836,14 +841,14 @@ class ImportBillsFromExcelAPIView(APIView):
 
     # map Excel headers → our internal snake_case keys
     HEADER_MAP = {
-        'Brand':               'brand',
-        'Invoice Date':        'invoice_date',
-        'Route Name':          'route_name',
-        'Invoice Number':      'invoice_number',
-        'Outlet Name':         'outlet_name',
-        'Outstanding Amount':  'outstanding_amount',
-        'Overdue Days':        'overdue_days',
-        'Invoice Bill Amount': 'bill_amount',
+        'Brand':                'brand',
+        'Invoice Date':         'invoice_date',
+        'Route Name':           'route_name',
+        'Invoice Number':       'invoice_number',
+        'Outlet Name':          'outlet_name',
+        'Outstanding Amount':   'remaining_amount',   # ← renamed
+        'Overdue Days':         'overdue_days',
+        'Invoice Bill Amount':  'total_amount',       # ← renamed
     }
 
     def post(self, request, *args, **kwargs):
@@ -882,14 +887,14 @@ class ImportBillsFromExcelAPIView(APIView):
                 excel_row = idx + 2  # for human-friendly errors
                 try:
                     # parse & coerce types
-                    brand          = str(row['brand']).strip()
-                    invoice_date   = pd.to_datetime(row['invoice_date']).date()
-                    route_name     = str(row['route_name']).strip()
-                    invoice_number = str(row['invoice_number']).strip()
-                    outlet_name    = str(row['outlet_name']).strip()
-                    outstanding_amt= float(row['outstanding_amount'])
-                    overdue_days   = int(row['overdue_days'])
-                    bill_amount    = float(row['bill_amount'])
+                    brand            = str(row['brand']).strip()
+                    invoice_date     = pd.to_datetime(row['invoice_date']).date()
+                    route_name       = str(row['route_name']).strip()
+                    invoice_number   = str(row['invoice_number']).strip()
+                    outlet_name      = str(row['outlet_name']).strip()
+                    remaining_amount = float(row['remaining_amount'])  # ← new field
+                    overdue_days     = int(row['overdue_days'])
+                    total_amount     = float(row['total_amount'])      # ← new field
 
                     # skip dupes
                     if Bill.objects.filter(invoice_number=invoice_number).exists():
@@ -907,19 +912,18 @@ class ImportBillsFromExcelAPIView(APIView):
                         outlet.route = route
                         outlet.save(update_fields=['route'])
 
-                    # create Bill (assigned_to left NULL)
+                    # create Bill
                     bill = Bill.objects.create(
                         brand=brand,
                         invoice_date=invoice_date,
                         outlet=outlet,
                         invoice_number=invoice_number,
-                        actual_amount=bill_amount,
-                        # no assigned_to – leave it for manual assignment later
+                        actual_amount=total_amount,  # use total_amount here
                     )
 
                     # set remaining & overdue
                     Bill.objects.filter(pk=bill.pk).update(
-                        remaining_amount=outstanding_amt,
+                        remaining_amount=remaining_amount,  # apply remaining_amount
                         overdue_days=overdue_days
                     )
 

@@ -107,7 +107,10 @@ class MyPaymentsListView(generics.ListAPIView):
 
     def get_queryset(self):
         # Base: all payments, ordered newest first
-        qs = Payment.objects.all().order_by('-created_at')
+        qs = Payment.objects.exclude(
+            Q(payment_method__in=["cheque","electronic"]) &
+            Q(cheque_status="pending")
+        ).order_by('-created_at')
 
         # Filter by invoice_number
         inv_no = self.request.query_params.get('invoice_number')
@@ -150,14 +153,14 @@ class TodayPaymentTotalsAPIView(APIView):
     def get(self, request, *args, **kwargs):
         today = timezone.localdate()
 
-        # cash & upi: by created_at date
         cash_sum = Payment.objects.filter(
             payment_method="cash",
             created_at__date=today
         ).aggregate(
             total=Coalesce(
-                Sum("amount", filter=Q(payment_method="cash")),
-                Value(0, output_field=DecimalField(max_digits=12, decimal_places=2))
+                Sum("amount"),
+                Value(0),
+                output_field=DecimalField(max_digits=12, decimal_places=2)
             )
         )["total"]
 
@@ -166,13 +169,12 @@ class TodayPaymentTotalsAPIView(APIView):
             created_at__date=today
         ).aggregate(
             total=Coalesce(
-                Sum("amount", filter=Q(payment_method="upi")),
-                Value(0, output_field=DecimalField(max_digits=12, decimal_places=2))
+                Sum("amount"),
+                Value(0),
+                output_field=DecimalField(max_digits=12, decimal_places=2)
             )
         )["total"]
 
-        # cheque + electronic: only those cleared *today* by cheque_date
-        # NEW: include both cheque & electronic once cleared *today*
         cheque_sum = Payment.objects.filter(
             payment_method__in=["cheque", "electronic"],
             cheque_status="cleared",
@@ -181,29 +183,28 @@ class TodayPaymentTotalsAPIView(APIView):
             total=Coalesce(
                 Sum("amount"),
                 Value(0),
-                output_field=DecimalField(max_digits=12, decimal_places=2),
+                output_field=DecimalField(max_digits=12, decimal_places=2)
             )
         )["total"]
 
-        data = {
-            "date": today,
-            "cash_total": cash_sum,
-            "upi_total": upi_sum,
+        return Response({
+            "date":        today,
+            "cash_total":  cash_sum,
+            "upi_total":   upi_sum,
             "cheque_total": cheque_sum,
-        }
-        return Response(data)
+        })
 
 class ChequeHistoryAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, pk=None, format=None):
-        # 1) start with cheque payments
+        METHODS = ["cheque", "electronic"]
         if request.user.is_staff:
-            base_qs = Payment.objects.filter(payment_method="cheque")
+           base_qs = Payment.objects.filter(payment_method__in=METHODS)
         else:
-            base_qs = Payment.objects.filter(
+           base_qs = Payment.objects.filter(
                 dra=request.user,
-                payment_method="cheque"
+                payment_method__in=METHODS
             )
 
         # 2) detail vs list
@@ -219,49 +220,53 @@ class ChequeHistoryAPIView(APIView):
                 cheque_status="pending"
             )
 
-        return Response(PaymentSerializer(base_qs.order_by("-cheque_date"), many=True).data)
+        # ← NEW: filter by invoice_number?
+        invoice = request.query_params.get("invoice_number")
+        if invoice:
+            base_qs = base_qs.filter(bill__invoice_number__icontains=invoice)
 
+        # 4) Return the list
+        serializer = PaymentSerializer(base_qs.order_by("-cheque_date"), many=True)
+        return Response(serializer.data)
 
     @extend_schema(
         request=ChequeStatusSerializer,
         responses={200: PaymentSerializer},
     )
     def put(self, request, pk, format=None):
-        # 1) Only admins/staff may update cheque_status:
         if not request.user.is_staff:
             return Response(
                 {"detail": "Only admins may update cheque status."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # 2) Fetch the cheque payment by PK (no dra filter):
+        # now allow both cheque _and_ electronic
         payment = get_object_or_404(
-            Payment.objects.filter(payment_method="cheque"),
+            Payment.objects.filter(payment_method__in=["cheque", "electronic"]),
             pk=pk
         )
 
-        # 3) Update only the cheque_status field:
-        serializer = ChequeStatusSerializer(
-            payment,
-            data=request.data,
-            partial=True,
-            context={"request": request},
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        ser = ChequeStatusSerializer(payment, data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        ser.save()
 
-        # 4) Adjust the linked Bill if needed:
+        # stamp today as the “cleared” date
+        if ser.validated_data.get("cheque_status") == "cleared":
+            payment.cheque_date = timezone.localdate()
+            payment.save(update_fields=["cheque_date"])
+
+        # update linked Bill
         bill = payment.bill
-        new_status = serializer.validated_data.get("cheque_status")
-        if new_status == "bounced":
+        new = ser.validated_data["cheque_status"]
+        if new == "bounced":
             bill.remaining_amount += payment.amount
             bill.status = "open"
             bill.save(update_fields=["remaining_amount", "status"])
-        elif new_status == "cleared" and bill.remaining_amount <= 0:
+        elif new == "cleared" and bill.remaining_amount <= 0:
             bill.status = "closed"
             bill.save(update_fields=["status"])
 
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(ser.data, status=status.HTTP_200_OK)
     def delete(self, request, pk, format=None):
         """
         DELETE /api/payments/cheque-history/{pk}/

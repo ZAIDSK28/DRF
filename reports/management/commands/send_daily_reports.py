@@ -8,6 +8,8 @@ from django.conf import settings
 from django.core.mail import EmailMessage
 from django.core.management.base import BaseCommand
 from django.utils import timezone
+from django.db.models.functions import Coalesce
+from django.db.models import Sum, Value, DecimalField, Q
 
 from bills.models import Bill
 from payments.models import Payment
@@ -27,139 +29,144 @@ class Command(BaseCommand):
         " 6) Outlet Name\n"
         " 7) Payment Amount\n"
         " 8) Username\n"
-        " 9) Overdue Days"
+        " 9) Overdue Days\n"
+        "10) Created At (timestamp)\n\n"
+        "And at the top: Today’s cash/UPI/cheque+electronic cleared totals."
     )
 
     def handle(self, *args, **options):
-        """
-        1. Determine “today” in the active timezone.
-        2. Query all Payment objects created today, along with related Bill and User.
-        3. Build a DataFrame with exactly the nine columns requested.
-        4. Compute “Overdue Days” as max((today – invoice_date).days, 0).
-        5. If no payments, log & exit without emailing.
-        6. Otherwise, write to an in-memory Excel file (one sheet), and email it to
-           settings.DAILY_REPORT_RECIPIENTS (a list in Django settings).
-        """
-
-        # 1. Today’s date in local timezone
+        # 1) Today’s date
         today = timezone.localdate()
 
-        # 2. Fetch payments created today, along with related Bill and DRA user.
-        #    Adjust 'created_by' below to match your actual field on Payment for “DRA username.”
+        # 2) Fetch payments created today
         payments_qs = (
             Payment.objects
-                .filter(created_at__date=today)
-                .select_related('bill', 'dra')
-                .order_by('created_at')
+                   .filter(created_at__date=today)
+                   .select_related('bill', 'dra')
+                   .order_by('created_at')
         )
 
         if not payments_qs.exists():
-            msg = f"No payments found for {today.isoformat()}; skipping email."
+            msg = f"No payments found for {today}; skipping email."
             self.stdout.write(self.style.WARNING(msg))
             logger.info(msg)
             return
 
-        # 3. Build a list of dicts, one per payment, with the nine desired fields
+        # 3) Compute today’s totals
+        cash_total = Payment.objects.filter(
+            payment_method='cash',
+            created_at__date=today
+        ).aggregate(
+            total=Coalesce(
+                Sum('amount'),
+                Value(0, output_field=DecimalField(max_digits=12, decimal_places=2))
+            )
+        )['total']
+
+        upi_total = Payment.objects.filter(
+            payment_method='upi',
+            created_at__date=today
+        ).aggregate(
+            total=Coalesce(
+                Sum('amount'),
+                Value(0, output_field=DecimalField(max_digits=12, decimal_places=2))
+            )
+        )['total']
+
+        cheque_total = Payment.objects.filter(
+            payment_method__in=['cheque', 'electronic'],
+            cheque_status='cleared',
+            cheque_date=today
+        ).aggregate(
+            total=Coalesce(
+                Sum('amount'),
+                Value(0, output_field=DecimalField(max_digits=12, decimal_places=2))
+            )
+        )['total']
+
+        # 4) Build rows for each payment
         rows = []
         for p in payments_qs:
             bill = p.bill
-            # Ensure bill and user exist (guard against nulls if your FK is nullable)
             if not bill:
-                # If somehow a Payment has no related Bill, skip or handle as needed
                 continue
 
-            # Compute overdue days: if invoice_date is in past, otherwise 0
-            # Note: invoice_date is assumed date or datetime.datetime; convert if needed
-            invoice_date = bill.invoice_date
-            if invoice_date is None:
-                overdue_days = ""
-            else:
-                # If invoice_date is a datetime, convert to date
-                if isinstance(invoice_date, datetime.datetime):
-                    invoice_date = invoice_date.date()
-                delta = today - invoice_date
-                overdue_days = delta.days if delta.days > 0 else 0
-
-            # DRA username: adjust `created_by.username` if your Payment model uses a different field
-            dra_username = getattr(p.dra, "username", "")
+            inv_date = bill.invoice_date
+            if isinstance(inv_date, datetime.datetime):
+                inv_date = inv_date.date()
+            overdue = max((today - inv_date).days, 0) if inv_date else ''
 
             rows.append({
-                "Bill ID":           bill.id,
-                "Brand":             bill.brand,
-                "Invoice Date":      invoice_date,
-                "Route Name":        bill.route,
-                "Invoice Number":    bill.invoice_number,
-                "Outlet Name":       bill.outlet,
-                "Payment Amount":    p.amount,
-                "Username":          dra_username,
-                "Overdue Days":      overdue_days,
+                "Bill ID":        bill.id,
+                "Brand":          bill.brand,
+                "Invoice Date":   inv_date,
+                "Route Name":     bill.route.name,
+                "Invoice Number": bill.invoice_number,
+                "Outlet Name":    bill.outlet.name,
+                "Payment Amount": p.amount,
+                "Username":       p.dra.username if p.dra else '',
+                "Overdue Days":   overdue,
+                # Option A: convert to tz-naive datetime
+                "Created At": p.created_at.astimezone(timezone.get_current_timezone()).replace(tzinfo=None),
             })
 
-        # Convert to DataFrame, enforcing column order
         df = pd.DataFrame(rows, columns=[
-            "Bill ID",
-            "Brand",
-            "Invoice Date",
-            "Route Name",
-            "Invoice Number",
-            "Outlet Name",
-            "Payment Amount",
-            "Username",
-            "Overdue Days",
+            "Bill ID","Brand","Invoice Date","Route Name",
+            "Invoice Number","Outlet Name","Payment Amount",
+            "Username","Overdue Days","Created At"
         ])
 
-        # 4. (Optional) If you want to format “Invoice Date” as YYYY-MM-DD strings for Excel:
-        #    df['Invoice Date'] = df['Invoice Date'].apply(lambda d: d.isoformat() if hasattr(d, 'isoformat') else "")
-
-        # 5. Write the DataFrame to an in-memory XLSX
+        # 5) Write to in-memory Excel
         out = BytesIO()
         with pd.ExcelWriter(out, engine='openpyxl') as writer:
-            # You could set date and number formats here if desired
-            df.to_excel(writer, index=False, sheet_name="DailyPaymentsReport")
+            # Create the sheet and get handle
             workbook = writer.book
-            sheet = writer.sheets["DailyPaymentsReport"]
+            sheet = workbook.create_sheet("DailyPaymentsReport", 0)
 
-            # Example: Auto-adjust column widths (optional)
-            for idx, column in enumerate(df.columns, 1):
-                # Compute a reasonable width: max length between header & any cell in that column
-                max_length = max(
-                    [len(str(column))] +
-                    [len(str(v)) for v in df[column].values]
+            # Totals header row
+            sheet.append([
+                "Cash Total",     float(cash_total),
+                "UPI Total",      float(upi_total),
+                "Cheque Total",   float(cheque_total),
+            ])
+            sheet.append([])  # blank row
+
+            # Write column headers + rows
+            for r in openpyxl.utils.dataframe.dataframe_to_rows(df, index=False, header=True):
+                sheet.append(r)
+
+            # Auto‐width
+            for idx, col in enumerate(df.columns, 1):
+                max_len = max(
+                    len(str(col)),
+                    *(len(str(cell)) for cell in df[col].values)
                 ) + 2
                 sheet.column_dimensions[
                     openpyxl.utils.get_column_letter(idx)
-                ].width = max_length
+                ].width = max_len
 
         out.seek(0)
 
-        # 6. Build and send email
-        subject = f"Daily Payments Report: {today.isoformat()}"
-        body = (
-            "Hello,\n\n"
-            f"Attached is the daily payments report for {today.isoformat()}, "
-            "containing Bill ID, Brand, Invoice Date, Route Name, Invoice Number, "
-            "Outlet Name, Payment Amount, Username, and Overdue Days.\n\n"
-            "Regards,\n"
-            "Auto-Reporter"
-        )
-
-        recipients = getattr(
-            settings, "DAILY_REPORT_RECIPIENTS", []
-        )
+        # 6) Email it
+        recipients = getattr(settings, "DAILY_REPORT_RECIPIENTS", [])
         if not recipients:
-            err = "DAILY_REPORT_RECIPIENTS not set in settings.py; cannot send report."
+            err = "DAILY_REPORT_RECIPIENTS not set; cannot send report."
             self.stderr.write(self.style.ERROR(err))
             logger.error(err)
             return
 
+        subject = f"Daily Payments Report: {today}"
+        body = (
+            f"Attached is the payments report for {today}, including "
+            "per‐payment details (with Created At) and today’s totals.\n"
+        )
         email = EmailMessage(
             subject=subject,
             body=body,
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=recipients,
         )
-
-        filename = f"daily_payments_{today.isoformat()}.xlsx"
+        filename = f"daily_payments_{today}.xlsx"
         email.attach(
             filename,
             out.read(),
@@ -168,10 +175,10 @@ class Command(BaseCommand):
 
         try:
             email.send(fail_silently=False)
-            success_msg = f"Sent daily payments report for {today.isoformat()} to {recipients}"
-            self.stdout.write(self.style.SUCCESS(success_msg))
-            logger.info(success_msg)
+            ok = f"Sent daily report to {recipients}"
+            self.stdout.write(self.style.SUCCESS(ok))
+            logger.info(ok)
         except Exception as e:
-            err_msg = f"Failed to send daily payments report: {e}"
-            self.stderr.write(self.style.ERROR(err_msg))
-            logger.exception(err_msg)
+            err = f"Failed to send report: {e}"
+            self.stderr.write(self.style.ERROR(err))
+            logger.exception(err)
