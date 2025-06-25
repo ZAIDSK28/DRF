@@ -9,6 +9,8 @@ from bills.views import (
     BillAssignView,
     MyAssignmentsFlatView,
     ImportBillsFromExcelAPIView,
+    BillExportView,
+    PaymentExportView,
 )
 
 router = DefaultRouter()
@@ -36,4 +38,7 @@ urlpatterns = [
     path("", include(router.urls)),
 
     path("import-excel/", ImportBillsFromExcelAPIView.as_view(), name="import-bills-excel"),
+
+    path("export-bills/", BillExportView.as_view(), name="export-bills"),
+    path("export-payments/", PaymentExportView.as_view(), name="export-payments"),
 ]

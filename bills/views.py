@@ -1,6 +1,9 @@
 from django.utils import timezone
 import io
 import pandas as pd
+import logging
+logger = logging.getLogger(__name__)
+
 
 from rest_framework import generics, status, permissions, viewsets
 from rest_framework.generics import GenericAPIView
@@ -518,13 +521,17 @@ def export_bills_xlsx(start_date=None, end_date=None):
 
     Returns: (content_bytes, filename, content_type)
     """
-    bills_qs = Bill.objects.select_related("outlet__route")
-    if start_date:
-        bills_qs = bills_qs.filter(invoice_date__gte=start_date)
-    if end_date:
-        bills_qs = bills_qs.filter(invoice_date__lte=end_date)
 
-    raw_values = bills_qs.values(
+    # 2) Base queryset, filter by invoice_date
+    logger.info(f"[export_bills_xlsx] start_date={start_date} end_date={end_date}")
+
+    qs = Bill.objects.select_related("outlet__route")
+    if start_date:
+        qs = qs.filter(invoice_date__gte=start_date)
+    if end_date:
+        qs = qs.filter(invoice_date__lte=end_date)
+
+    raw = qs.values(
         "pk",
         "invoice_number",
         "invoice_date",
@@ -532,56 +539,35 @@ def export_bills_xlsx(start_date=None, end_date=None):
         "outlet__name",
         "brand",
         "remaining_amount",
-        "created_at",      # ← new
-        "overdue_days",    # ← new
-        "actual_amount",   # ← rename below as Total amount
-        
+        "created_at",
+        "overdue_days",
+        "actual_amount",
     )
+    df = pd.DataFrame.from_records(raw)
 
-    bills_df = pd.DataFrame.from_records(raw_values)
+    # 1) Strip any stray whitespace
+    df.columns = df.columns.str.strip()
 
-    if bills_df.empty:
-        bills_df = pd.DataFrame(
-            columns=[
-                "pk",
-                "brand",
-                "invoice_date",
-                "invoice_number",
-                "remaining_amount",
-                "actual_amount",
-                "outlet__name",
-                "outlet__route__name",
-            ]
-        )
+    # 2) Rename IN‐PLACE so df actually has the new names
+    df.rename(columns={
+        "pk":                   "Bill id",
+        "invoice_number":       "Invoice number",
+        "invoice_date":         "Invoice date",
+        "outlet__route__name":  "Route name",
+        "outlet__name":         "Outlet name",
+        "brand":                "Brand",
+        "remaining_amount":     "Remaining amount",
+        "created_at":           "Bill created on",
+        "overdue_days":         "Overdue days",
+        "actual_amount":        "Total amount",
+    }, inplace=True)
 
-   
-    today = timezone.localdate()
-    def compute_overdue(row):
-        inv_date = row["invoice_date"]
-        if pd.isna(inv_date):
-            return 0
-        inv = inv_date.to_pydatetime().date() if isinstance(inv_date, pd.Timestamp) else inv_date
-        delta = (today - inv).days
-        return max(delta, 0)
+    # 3) (Optional) debug: log what columns we have
+    logger.debug(f"[export_bills_xlsx] df.columns = {list(df.columns)}")
 
-    bills_df["Overdue Days"] = bills_df.apply(compute_overdue, axis=1)
-
-    bills_df = bills_df.rename(
-        columns={
-        "pk":             "Bill id",
-        "invoice_number": "Invoice number",
-        "invoice_date":   "Invoice date",
-        "outlet__route__name": "Route name",
-        "outlet__name":   "Outlet name",
-        "brand":          "Brand",
-        "remaining_amount": "Remaining amount",
-        "created_at":     "Bill created on",
-        "overdue_days":   "Overdue days",
-        "actual_amount":  "Total amount",
-        }
-    )
-
-    ordered_columns = [
+    # 4) Reorder safely using reindex (will insert blanks if any are missing,
+    #    but won’t blow up if pandas didn’t find one)
+    cols = [
         "Bill id",
         "Invoice number",
         "Invoice date",
@@ -593,27 +579,30 @@ def export_bills_xlsx(start_date=None, end_date=None):
         "Overdue days",
         "Total amount",
     ]
-    bills_df = bills_df[ordered_columns]
+    df = df.reindex(columns=cols)
 
-    # 8) Strip timezone info from “Invoice Date” if present
-    if "Invoice Date" in bills_df.columns and pd.api.types.is_datetime64tz_dtype(bills_df["Invoice Date"].dtype):
-        bills_df["Invoice Date"] = bills_df["Invoice Date"].dt.tz_convert(None)
+    # 5) Remove tzinfo from any datetime columns
+    for date_col in ("Invoice date", "Bill created on"):
+        if date_col in df.columns and pd.api.types.is_datetime64tz_dtype(df[date_col].dtype):
+            df[date_col] = df[date_col].dt.tz_convert(None)
 
-    if pd.api.types.is_datetime64tz_dtype(bills_df["Bill created on"].dtype):
-        bills_df["Bill created on"] = bills_df["Bill created on"].dt.tz_convert(None)
+    # 6) Build the filename
+    if start_date and end_date:
+        filename = f"bills-{start_date.isoformat()}-to-{end_date.isoformat()}.xlsx"
+    elif start_date:
+        filename = f"bills-from-{start_date.isoformat()}.xlsx"
+    elif end_date:
+        filename = f"bills-until-{end_date.isoformat()}.xlsx"
+    else:
+        filename = "bills-all.xlsx"
+    logger.info(f"[export_bills_xlsx] filename → {filename}")
 
-    # 9) Build a filename based on the date window
-    start_str = start_date.isoformat() if start_date else "all"
-    end_str = end_date.isoformat() if end_date else "all"
-    filename = f"bills-{start_str}-to-{end_str}.xlsx"
+    # 7) Write to Excel
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Bills")
 
-    # 10) Write to an in‐memory XLSX file
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        bills_df.to_excel(writer, index=False, sheet_name="Bills")
-    return output.getvalue(), f"bills_{start_date or 'all'}_to_{end_date or 'all'}.xlsx", \
-           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
+    return buf.getvalue(), filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 def export_payments_xlsx(start_date=None, end_date=None):
     # 1) Fetch + build your DataFrame (df) exactly as before...
@@ -730,59 +719,40 @@ def export_payments_xlsx(start_date=None, end_date=None):
         filename,
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+
 class BillExportView(APIView):
     """
     GET /api/bills/export-bills/?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
       → returns a single XLSX file containing only bills in that date range.
     """
-    permission_classes = (IsAuthenticated,)  # or (IsAuthenticated,) if you want auth
+    permission_classes = (IsAuthenticated,)
 
     @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="start_date",
-                type=OpenApiTypes.DATE,
-                location=OpenApiParameter.QUERY,
-                description="(Optional) YYYY-MM-DD. Filter bills with invoice_date ≥ start_date.",
-                required=False,
-            ),
-            OpenApiParameter(
-                name="end_date",
-                type=OpenApiTypes.DATE,
-                location=OpenApiParameter.QUERY,
-                description="(Optional) YYYY-MM-DD. Filter bills with invoice_date ≤ end_date.",
-                required=False,
-            ),
-        ],
-        responses={
-            200: OpenApiTypes.BINARY,
-            400: OpenApiResponse(description="Invalid date format"),
-        },
+      parameters=[
+        OpenApiParameter("start_date", OpenApiTypes.DATE, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("end_date",   OpenApiTypes.DATE, OpenApiParameter.QUERY, required=False),
+      ],
+      responses={200: OpenApiTypes.BINARY, 400: OpenApiResponse(description="Invalid date")},
     )
     def get(self, request, *args, **kwargs):
         raw_start = request.query_params.get("start_date")
-        raw_end = request.query_params.get("end_date")
+        raw_end   = request.query_params.get("end_date")
+        logger.info(f"[BillExportView] raw_start={raw_start!r} raw_end={raw_end!r}")
 
         start_date = parse_date(raw_start) if raw_start else None
-        end_date = parse_date(raw_end) if raw_end else None
+        end_date   = parse_date(raw_end)   if raw_end   else None
+        logger.info(f"[BillExportView] parsed start={start_date} end={end_date}")
 
         if raw_start and not start_date:
-            return Response(
-                {"detail": "Invalid start_date. Must be YYYY-MM-DD."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"detail": f"Invalid start_date: {raw_start}"}, status=400)
         if raw_end and not end_date:
-            return Response(
-                {"detail": "Invalid end_date. Must be YYYY-MM-DD."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"detail": f"Invalid end_date: {raw_end}"},   status=400)
 
         content, filename, content_type = export_bills_xlsx(start_date, end_date)
         resp = HttpResponse(content, content_type=content_type)
         resp["Content-Disposition"] = f'attachment; filename="{filename}"'
         return resp
-
-
 class PaymentExportView(APIView):
     """
     GET /api/bills/export-payments/?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD

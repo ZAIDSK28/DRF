@@ -109,9 +109,8 @@ class MyPaymentsListView(generics.ListAPIView):
         # Base: all payments, ordered newest first
         qs = Payment.objects.exclude(
             Q(payment_method__in=["cheque","electronic"]) &
-            Q(cheque_status="pending")
+            Q(cheque_status__in=["pending", "bounced"])
         ).order_by('-created_at')
-
         # Filter by invoice_number
         inv_no = self.request.query_params.get('invoice_number')
         if inv_no:
