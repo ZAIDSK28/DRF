@@ -6,6 +6,8 @@ from rest_framework.views import APIView
 from django.db.models.functions import Coalesce
 from django.db.models import Sum, Q, Value, DecimalField
 from drf_spectacular.utils import extend_schema, OpenApiResponse
+from rest_framework.generics import GenericAPIView
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 
 
 from django.utils.dateparse import parse_date
@@ -193,8 +195,19 @@ class TodayPaymentTotalsAPIView(APIView):
             "cheque_total": cheque_sum,
         })
 
-class ChequeHistoryAPIView(APIView):
+class ChequeHistoryAPIView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class   = PaymentSerializer
+    pagination_class   = PaymentPagination
+
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("invoice_number", OpenApiTypes.STR, required=False),
+            OpenApiParameter("page",           OpenApiTypes.INT, required=False),
+            OpenApiParameter("limit",          OpenApiTypes.INT, required=False),
+        ],
+    )
 
     def get(self, request, pk=None, format=None):
         METHODS = ["cheque", "electronic"]
@@ -219,14 +232,21 @@ class ChequeHistoryAPIView(APIView):
                 cheque_status="pending"
             )
 
-        # ← NEW: filter by invoice_number?
-        invoice = request.query_params.get("invoice_number")
-        if invoice:
-            base_qs = base_qs.filter(bill__invoice_number__icontains=invoice)
+        # invoice-number search
+        inv = request.query_params.get("invoice_number")
+        if inv:
+            base_qs = base_qs.filter(bill__invoice_number__icontains=inv)
 
-        # 4) Return the list
-        serializer = PaymentSerializer(base_qs.order_by("-cheque_date"), many=True)
-        return Response(serializer.data)
+        # now paginate & return
+        qs = base_qs.order_by("-cheque_date")
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            ser = self.get_serializer(page, many=True)
+            return self.get_paginated_response(ser.data)
+
+        # fallback (no page/limit)
+        ser = self.get_serializer(qs, many=True)
+        return Response(ser.data)
 
     @extend_schema(
         request=ChequeStatusSerializer,
