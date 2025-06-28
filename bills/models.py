@@ -1,7 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
-from django.db.models import Sum
+from django.db.models import Sum, Q
 from decimal import Decimal
 
 
@@ -103,13 +103,13 @@ class Bill(models.Model):
         super().save(*args, **kwargs)
 
         # now safely aggregate payments to recalc remaining_amount
-        paid = (
-            self.user_payments.aggregate(total=Sum('amount'))['total']
-            or Decimal('0.00')
+        paid_qs = self.user_payments.filter(
+            Q(payment_method__in=['cash','upi']) |
+            Q(payment_method__in=['cheque','electronic'], cheque_status='cleared')
         )
+        paid = paid_qs.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
         new_rem = self.actual_amount - paid
 
-        # update only remaining_amount (and overdue_days/cleared_at if needed)
         Bill.objects.filter(pk=self.pk).update(remaining_amount=new_rem)
 
     @property

@@ -1,8 +1,8 @@
 from django.db import models
 from django.conf import settings
 from django.dispatch import receiver
-from django.db.models.signals import post_save
-from django.db.models import Sum
+from django.db.models.signals import post_save, post_delete
+from django.db.models import Sum, Q
 from decimal import Decimal
 from bills.models import Bill
 
@@ -33,15 +33,20 @@ class Payment(models.Model):
     created_at     = models.DateTimeField(auto_now_add=True)
 
 @receiver(post_save, sender=Payment)
+@receiver(post_delete, sender=Payment)
 def update_bill_remaining(sender, instance, **kwargs):
     bill = instance.bill
-    paid = bill.user_payments.aggregate(
-        total=Sum('amount')
-    )['total'] or Decimal('0.00')
+
+    # include cash & upi always, but cheque/electronic *only* when cleared
+    settled = bill.user_payments.filter(
+        Q(payment_method__in=['cash','upi'])
+        | Q(payment_method__in=['cheque','electronic'], cheque_status='cleared')
+    )
+
+    paid = settled.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
     bill.remaining_amount = bill.actual_amount - paid
-    if bill.remaining_amount <= 0:
-        bill.status = 'closed'
-    bill.save(update_fields=['remaining_amount', 'status'])
+    bill.status = 'closed' if bill.remaining_amount <= 0 else 'open'
+    bill.save(update_fields=['remaining_amount','status'])
 
 class DailyPaymentSummary(models.Model):
     date = models.DateField(unique=True)  # e.g. 2025-06-04
